@@ -1,19 +1,25 @@
+'use client'
+
 import React, { useState } from 'react';
-import { 
-  TrendingUp, TrendingDown, Shield, Brain, ChevronRight, ChevronLeft, 
-  Check, AlertCircle, Loader2, Target, Zap, Rocket, BarChart2, 
+import {
+  TrendingUp, TrendingDown, Shield, Brain, ChevronRight, ChevronLeft,
+  Check, AlertCircle, Loader2, Target, Zap, Rocket, BarChart2,
   Newspaper, ChevronDown, Activity, Clock, DollarSign, ShieldAlert,
   ArrowUpRight, ArrowDownRight, Crosshair, LineChart, BarChart3,
-  AlertTriangle, Eye, Scale, Flame, Gauge, Calendar, BookOpen, Lightbulb
+  AlertTriangle, Eye, Scale, Flame, Gauge, Calendar, BookOpen, Lightbulb,
+  XCircle
 } from 'lucide-react';
 
 export default function SwingCommitteeApp() {
   const [step, setStep] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState(null);
+  const [analysisError, setAnalysisError] = useState(null);
   const [showUKSources, setShowUKSources] = useState(false);
   const [showUSSources, setShowUSSources] = useState(false);
-  const [expandedSignal, setExpandedSignal] = useState('NVDA');
+  const [expandedSignal, setExpandedSignal] = useState(null);
+  const [activeReportTab, setActiveReportTab] = useState('summary');
 
   const [formData, setFormData] = useState({
     // Account
@@ -107,9 +113,6 @@ export default function SwingCommitteeApp() {
     'Checking UK market breadth...',
     'Checking US market breadth...',
     'Reviewing open positions...',
-    'Analyzing watchlist: NVDA...',
-    'Analyzing watchlist: MSFT...',
-    'Analyzing watchlist: AAPL...',
     'Applying Livermore pivotal points...',
     'Running O\'Neil CANSLIM screen...',
     'Checking Minervini trend template...',
@@ -124,23 +127,66 @@ export default function SwingCommitteeApp() {
 
   const [currentAnalysisStep, setCurrentAnalysisStep] = useState(0);
 
-  const runAnalysis = () => {
+  const runAnalysis = async () => {
     setIsAnalyzing(true);
     setCurrentAnalysisStep(0);
-    
+    setAnalysisError(null);
+
+    // Animate through steps while waiting for API
     const interval = setInterval(() => {
       setCurrentAnalysisStep(prev => {
-        if (prev >= analysisSteps.length - 1) {
-          clearInterval(interval);
-          setTimeout(() => {
-            setIsAnalyzing(false);
-            setAnalysisComplete(true);
-          }, 500);
-          return prev;
-        }
+        if (prev >= analysisSteps.length - 1) return prev;
         return prev + 1;
       });
-    }, 400);
+    }, 800);
+
+    try {
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          formData,
+          marketPulse: {
+            uk: { score: marketPulseData.uk.score, label: marketPulseData.uk.label, regime: marketPulseData.uk.regime },
+            us: { score: marketPulseData.us.score, label: marketPulseData.us.label, regime: marketPulseData.us.regime }
+          }
+        })
+      });
+
+      clearInterval(interval);
+
+      if (!response.ok) {
+        throw new Error('Analysis failed');
+      }
+
+      const result = await response.json();
+      setAnalysisResult(result);
+      setCurrentAnalysisStep(analysisSteps.length - 1);
+
+      setTimeout(() => {
+        setIsAnalyzing(false);
+        setAnalysisComplete(true);
+      }, 500);
+
+    } catch (error) {
+      clearInterval(interval);
+      setAnalysisError(error.message);
+      setIsAnalyzing(false);
+    }
+  };
+
+  const getGradeColor = (grade) => {
+    if (!grade) return 'bg-gray-400';
+    if (grade === 'A+' || grade === 'A') return 'bg-green-600';
+    if (grade === 'B') return 'bg-amber-500';
+    return 'bg-gray-400';
+  };
+
+  const getVerdictColor = (verdict) => {
+    if (!verdict) return 'bg-gray-100 text-gray-600';
+    if (verdict === 'TAKE TRADE') return 'bg-green-100 text-green-700';
+    if (verdict === 'WATCHLIST') return 'bg-amber-100 text-amber-700';
+    return 'bg-gray-100 text-gray-600';
   };
 
   const renderStep = () => {
@@ -215,7 +261,7 @@ export default function SwingCommitteeApp() {
                       </div>
                     </div>
                     <div className="relative h-3 rounded-full overflow-hidden bg-gradient-to-r from-red-500 via-amber-500 to-green-500">
-                      <div 
+                      <div
                         className="absolute top-1/2 -translate-y-1/2 w-4 h-5 bg-white border-2 border-gray-800 rounded-sm shadow-lg"
                         style={{ left: `calc(${(marketPulseData.uk.score / 10) * 100}% - 8px)` }}
                       />
@@ -251,7 +297,7 @@ export default function SwingCommitteeApp() {
                       </div>
                     </div>
                     <div className="relative h-3 rounded-full overflow-hidden bg-gradient-to-r from-red-500 via-amber-500 to-green-500">
-                      <div 
+                      <div
                         className="absolute top-1/2 -translate-y-1/2 w-4 h-5 bg-white border-2 border-gray-800 rounded-sm shadow-lg"
                         style={{ left: `calc(${(marketPulseData.us.score / 10) * 100}% - 8px)` }}
                       />
@@ -268,7 +314,7 @@ export default function SwingCommitteeApp() {
             {/* Risk Warning */}
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
               <p className="text-sm text-red-800">
-                <strong>⚠️ Risk Warning:</strong> Swing trading involves substantial risk of loss. Never risk more than you can afford to lose. This is educational only — not financial advice.
+                <strong>Risk Warning:</strong> Swing trading involves substantial risk of loss. Never risk more than you can afford to lose. This is educational only — not financial advice.
               </p>
             </div>
           </div>
@@ -279,7 +325,7 @@ export default function SwingCommitteeApp() {
           <div className="space-y-6">
             <h2 className="text-2xl font-bold text-gray-900">Account Settings</h2>
             <p className="text-gray-600">Configure your risk parameters</p>
-            
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Account Size (£)</label>
@@ -331,7 +377,7 @@ export default function SwingCommitteeApp() {
 
             <div className="border-t border-gray-200 pt-6">
               <h3 className="font-medium text-gray-900 mb-4">Trading Permissions</h3>
-              
+
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div>
@@ -364,11 +410,11 @@ export default function SwingCommitteeApp() {
                 <p className="text-sm font-medium text-gray-700 mb-2">Instruments Allowed</p>
                 <div className="flex flex-wrap gap-2">
                   {[
-                    { key: 'ukStocks', label: '🇬🇧 UK Stocks' },
-                    { key: 'usStocks', label: '🇺🇸 US Stocks' },
-                    { key: 'indices', label: '📊 Indices' },
-                    { key: 'forex', label: '💱 Forex' },
-                    { key: 'crypto', label: '₿ Crypto' },
+                    { key: 'ukStocks', label: 'UK Stocks' },
+                    { key: 'usStocks', label: 'US Stocks' },
+                    { key: 'indices', label: 'Indices' },
+                    { key: 'forex', label: 'Forex' },
+                    { key: 'crypto', label: 'Crypto' },
                   ].map(item => (
                     <button
                       key={item.key}
@@ -389,7 +435,7 @@ export default function SwingCommitteeApp() {
             {/* Execution Mode */}
             <div className="border-t border-gray-200 pt-6">
               <h3 className="font-medium text-gray-900 mb-4">Execution Mode</h3>
-              
+
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => setFormData({ ...formData, executionMode: 'standard' })}
@@ -450,7 +496,7 @@ export default function SwingCommitteeApp() {
 
             <div className={`border rounded-lg p-4 ${formData.executionMode === 'spread_bet' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
               <p className={`text-sm ${formData.executionMode === 'spread_bet' ? 'text-green-800' : 'text-blue-800'}`}>
-                <strong>Risk calculation:</strong> With £{formData.accountSize} and {formData.riskPerTrade}% risk, 
+                <strong>Risk calculation:</strong> With £{formData.accountSize} and {formData.riskPerTrade}% risk,
                 your max risk per trade is <strong>£{(parseFloat(formData.accountSize) * parseFloat(formData.riskPerTrade) / 100).toFixed(0)}</strong>
                 {formData.executionMode === 'spread_bet' && (
                   <span className="block mt-1">
@@ -467,7 +513,7 @@ export default function SwingCommitteeApp() {
           <div className="space-y-6">
             <h2 className="text-2xl font-bold text-gray-900">Current Positions</h2>
             <p className="text-gray-600">Enter your open swing trades (if any)</p>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Open Positions</label>
               <textarea
@@ -520,7 +566,7 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
           <div className="space-y-6">
             <h2 className="text-2xl font-bold text-gray-900">Watchlist</h2>
             <p className="text-gray-600">Enter tickers you want the committee to analyze</p>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Watchlist Tickers</label>
               <textarea
@@ -541,12 +587,12 @@ Format: Ticker, Notes (optional)"
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <h3 className="font-medium text-blue-900 mb-2">What We'll Check</h3>
               <ul className="text-sm text-blue-800 space-y-1">
-                <li>✓ Livermore pivotal points & timing</li>
-                <li>✓ O'Neil CANSLIM & relative strength</li>
-                <li>✓ Minervini trend template & VCP</li>
-                <li>✓ Darvas box structure</li>
-                <li>✓ Raschke momentum/mean reversion</li>
-                <li>✓ Weinstein stage analysis</li>
+                <li>• Livermore pivotal points & timing</li>
+                <li>• O'Neil CANSLIM & relative strength</li>
+                <li>• Minervini trend template & VCP</li>
+                <li>• Darvas box structure</li>
+                <li>• Raschke momentum/mean reversion</li>
+                <li>• Weinstein stage analysis</li>
               </ul>
             </div>
           </div>
@@ -557,7 +603,7 @@ Format: Ticker, Notes (optional)"
           <div className="space-y-6">
             <h2 className="text-2xl font-bold text-gray-900">Session Settings</h2>
             <p className="text-gray-600">Configure this analysis session</p>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Trade Mode</label>
               <div className="grid grid-cols-2 gap-3">
@@ -599,11 +645,11 @@ Format: Ticker, Notes (optional)"
                 onChange={(e) => setFormData({ ...formData, regimeView: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
-                <option value="trending_up">📈 Trending Up — Buy breakouts</option>
-                <option value="choppy">↔️ Choppy — Mean reversion / selective</option>
-                <option value="volatile">⚡ Volatile — Reduce size, careful</option>
-                <option value="trending_down">📉 Trending Down — Defensive / short bias</option>
-                <option value="uncertain">❓ Uncertain — Let committee decide</option>
+                <option value="trending_up">Trending Up — Buy breakouts</option>
+                <option value="choppy">Choppy — Mean reversion / selective</option>
+                <option value="volatile">Volatile — Reduce size, careful</option>
+                <option value="trending_down">Trending Down — Defensive / short bias</option>
+                <option value="uncertain">Uncertain — Let committee decide</option>
               </select>
             </div>
 
@@ -668,13 +714,13 @@ Format: Ticker, Notes (optional)"
                 <Activity className="absolute inset-0 m-auto w-8 h-8 text-blue-600" />
               </div>
               <h2 className="text-2xl font-bold text-gray-900">Swing Committee in Session</h2>
-              
+
               <div className="max-w-md mx-auto text-left bg-gray-50 rounded-xl p-4">
                 <div className="space-y-2">
                   {analysisSteps.map((stepText, i) => (
                     <div key={i} className={`flex items-center gap-3 text-sm transition-all duration-300 ${
-                      i < currentAnalysisStep ? 'text-green-600' : 
-                      i === currentAnalysisStep ? 'text-blue-600 font-medium' : 
+                      i < currentAnalysisStep ? 'text-green-600' :
+                      i === currentAnalysisStep ? 'text-blue-600 font-medium' :
                       'text-gray-300'
                     }`}>
                       {i < currentAnalysisStep ? (
@@ -693,220 +739,235 @@ Format: Ticker, Notes (optional)"
           );
         }
 
-        if (analysisComplete) {
+        if (analysisError) {
+          return (
+            <div className="text-center py-12 space-y-6">
+              <div className="w-16 h-16 bg-red-100 rounded-full mx-auto flex items-center justify-center">
+                <XCircle className="w-8 h-8 text-red-600" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900">Analysis Failed</h2>
+              <p className="text-gray-600">{analysisError}</p>
+              <button
+                onClick={runAnalysis}
+                className="px-6 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors"
+              >
+                Try Again
+              </button>
+            </div>
+          );
+        }
+
+        if (analysisComplete && analysisResult) {
           return (
             <div className="space-y-6">
-              {/* Header */}
+              {/* Report Header */}
               <div className="bg-gradient-to-r from-blue-900 to-indigo-800 rounded-2xl p-6 text-white">
                 <div className="flex justify-between items-start">
                   <div>
                     <p className="text-blue-200 text-sm">Swing Committee Report</p>
                     <h1 className="text-2xl font-bold mt-1">{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</h1>
                     <p className="text-blue-300 mt-2">
-                      {formData.tradeMode === 'position' ? 'Position Swing Mode' : 'Short-Term Swing Mode'} • Balanced Committee
+                      {formData.tradeMode === 'position' ? 'Position Swing Mode' : 'Short-Term Swing Mode'} • {analysisResult.mode || 'Balanced'} Committee
                     </p>
                   </div>
                 </div>
-                
-                <div className="grid grid-cols-4 gap-4 mt-6">
+
+                <div className="grid grid-cols-3 gap-4 mt-6">
                   <div className="bg-white/10 rounded-lg p-3">
-                    <p className="text-blue-200 text-xs">Market Regime</p>
-                    <p className="text-lg font-bold text-green-400">Trending Up</p>
+                    <p className="text-blue-200 text-xs">Committee Stance</p>
+                    <p className={`text-lg font-bold ${
+                      analysisResult.mode === 'Aggressive' ? 'text-green-400' :
+                      analysisResult.mode === 'Defensive' ? 'text-amber-400' :
+                      'text-blue-300'
+                    }`}>{analysisResult.mode || 'Balanced'}</p>
                   </div>
                   <div className="bg-white/10 rounded-lg p-3">
                     <p className="text-blue-200 text-xs">Signals Found</p>
-                    <p className="text-lg font-bold">3</p>
+                    <p className="text-lg font-bold">{analysisResult.signals?.length || 0}</p>
                   </div>
                   <div className="bg-white/10 rounded-lg p-3">
-                    <p className="text-blue-200 text-xs">Portfolio Heat</p>
-                    <p className="text-lg font-bold text-amber-400">2.1%</p>
-                  </div>
-                  <div className="bg-white/10 rounded-lg p-3">
-                    <p className="text-blue-200 text-xs">Capacity</p>
-                    <p className="text-lg font-bold text-green-400">3 more trades</p>
+                    <p className="text-blue-200 text-xs">Market Regime</p>
+                    <p className="text-lg font-bold text-green-400">{marketPulseData.us.regime}</p>
                   </div>
                 </div>
               </div>
 
-              {/* Trade Signals */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="p-4 border-b border-gray-100">
-                  <h2 className="font-bold text-gray-900">Trade Signals</h2>
-                </div>
-                
-                {/* Signal Card - NVDA */}
-                <div className="border-b border-gray-100">
+              {/* Report Tabs */}
+              <div className="flex gap-2 border-b border-gray-200 overflow-x-auto">
+                {[
+                  { id: 'summary', label: 'Summary' },
+                  { id: 'signals', label: 'Trade Signals' },
+                  { id: 'positions', label: 'Positions' },
+                  { id: 'full', label: 'Full Report' },
+                ].map(tab => (
                   <button
-                    onClick={() => setExpandedSignal(expandedSignal === 'NVDA' ? null : 'NVDA')}
-                    className="w-full p-4 flex items-center justify-between hover:bg-gray-50"
+                    key={tab.id}
+                    onClick={() => setActiveReportTab(tab.id)}
+                    className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                      activeReportTab === tab.id
+                        ? 'border-blue-500 text-blue-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold">
-                        A+
-                      </div>
-                      <div className="text-left">
-                        <p className="font-bold text-gray-900">NVDA</p>
-                        <p className="text-sm text-gray-500">VCP Breakout • Long</p>
-                      </div>
-                      <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">6/6 Pillars</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="font-bold text-gray-900">Entry $138-140</p>
-                        <p className="text-sm text-gray-500">R:R 3.2:1</p>
-                      </div>
-                      <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${expandedSignal === 'NVDA' ? 'rotate-180' : ''}`} />
-                    </div>
+                    {tab.label}
                   </button>
-                  
-                  {expandedSignal === 'NVDA' && (
-                    <div className="p-4 bg-gray-50 border-t border-gray-100 space-y-4">
-                      <div className="grid grid-cols-4 gap-3">
-                        <div className="bg-white rounded-lg p-3 text-center">
-                          <p className="text-xs text-gray-500">Entry Zone</p>
-                          <p className="font-bold text-gray-900">$138-140</p>
-                          <p className="text-xs text-gray-400">13800-14000 pts</p>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center">
-                          <p className="text-xs text-gray-500">Stop Loss</p>
-                          <p className="font-bold text-red-600">$131.20</p>
-                          <p className="text-xs text-gray-400">13120 pts</p>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center">
-                          <p className="text-xs text-gray-500">Target 1</p>
-                          <p className="font-bold text-green-600">$152</p>
-                          <p className="text-xs text-gray-400">15200 pts</p>
-                        </div>
-                        <div className="bg-white rounded-lg p-3 text-center">
-                          <p className="text-xs text-gray-500">Target 2</p>
-                          <p className="font-bold text-green-600">$165</p>
-                          <p className="text-xs text-gray-400">16500 pts</p>
-                        </div>
-                      </div>
+                ))}
+              </div>
 
-                      {/* Position Sizing - Both Modes */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-white rounded-lg p-3 border border-gray-200">
-                          <div className="flex items-center gap-2 mb-2">
-                            <BarChart3 className="w-4 h-4 text-blue-600" />
-                            <p className="text-sm font-medium text-gray-700">Standard (Shares)</p>
-                          </div>
-                          <p className="text-gray-600 text-sm">Buy <strong>15 shares</strong> at $139</p>
-                          <p className="text-gray-500 text-xs">Position: £1,670 • Risk: £100</p>
-                        </div>
-                        <div className="bg-green-50 rounded-lg p-3 border border-green-200">
-                          <div className="flex items-center gap-2 mb-2">
-                            <TrendingUp className="w-4 h-4 text-green-600" />
-                            <p className="text-sm font-medium text-gray-700">Spread Bet</p>
-                            <span className="px-1 py-0.5 bg-green-100 text-green-700 text-xs rounded">Tax-Free</span>
-                          </div>
-                          <p className="text-gray-600 text-sm">Buy <strong>£0.14/point</strong> at 13900</p>
-                          <p className="text-gray-500 text-xs">Stop: 780 pts • Risk: £100 • Margin: ~£390</p>
-                        </div>
-                      </div>
+              {/* Tab Content */}
+              {activeReportTab === 'summary' && (
+                <div className="space-y-6">
+                  {/* Executive Summary */}
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                    <h2 className="text-lg font-bold text-gray-900 mb-4">Executive Summary</h2>
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                      <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">
+                        {analysisResult.summary || 'Analysis complete. Review your recommendations below.'}
+                      </p>
+                    </div>
+                  </div>
 
-                      <div>
-                        <p className="text-sm font-medium text-gray-700 mb-2">Six Pillars Alignment</p>
-                        <div className="grid grid-cols-3 gap-2">
-                          {[
-                            { name: 'Livermore', pass: true, note: 'Breaking 3-week consolidation' },
-                            { name: 'O\'Neil', pass: true, note: 'RS 94, volume +45%' },
-                            { name: 'Minervini', pass: true, note: 'Stage 2, VCP complete' },
-                            { name: 'Darvas', pass: true, note: 'New box breakout' },
-                            { name: 'Raschke', pass: true, note: 'Momentum thrust' },
-                            { name: 'Weinstein', pass: true, note: 'Above rising 30-week' },
-                          ].map(pillar => (
-                            <div key={pillar.name} className={`p-2 rounded text-xs ${pillar.pass ? 'bg-green-50' : 'bg-red-50'}`}>
-                              <div className="flex items-center gap-1">
-                                <Check className={`w-3 h-3 ${pillar.pass ? 'text-green-600' : 'text-red-600'}`} />
-                                <span className="font-medium">{pillar.name}</span>
+                  {/* Chair's Decision */}
+                  {analysisResult.chairDecision && (
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                      <h3 className="font-bold text-gray-900 mb-3">Chair's Decision</h3>
+                      <div className="prose prose-sm max-w-none">
+                        <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-4 rounded-lg overflow-auto">
+                          {analysisResult.chairDecision}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Pillar Reminder */}
+                  {analysisResult.pillarReminder && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                      <h3 className="font-medium text-amber-900 mb-2">Wisdom from the Masters</h3>
+                      <p className="text-amber-800 italic whitespace-pre-wrap">{analysisResult.pillarReminder}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeReportTab === 'signals' && (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="p-4 border-b border-gray-100">
+                    <h2 className="font-bold text-gray-900">Trade Signals</h2>
+                  </div>
+
+                  {analysisResult.signals && analysisResult.signals.length > 0 ? (
+                    <div>
+                      {analysisResult.signals.map((signal, index) => (
+                        <div key={index} className="border-b border-gray-100 last:border-b-0">
+                          <button
+                            onClick={() => setExpandedSignal(expandedSignal === signal.ticker ? null : signal.ticker)}
+                            className="w-full p-4 flex items-center justify-between hover:bg-gray-50"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className={`w-12 h-12 ${getGradeColor(signal.grade)} rounded-xl flex items-center justify-center text-white font-bold`}>
+                                {signal.grade || '?'}
                               </div>
-                              <p className="text-gray-500 mt-1">{pillar.note}</p>
+                              <div className="text-left">
+                                <p className="font-bold text-gray-900">{signal.ticker}</p>
+                                <p className="text-sm text-gray-500">{signal.setupType || signal.name || 'Swing Setup'} • {signal.direction || 'Long'}</p>
+                              </div>
+                              {signal.pillarCount && (
+                                <span className={`px-2 py-1 text-xs font-medium rounded ${
+                                  signal.pillarCount >= 4 ? 'bg-green-100 text-green-700' :
+                                  signal.pillarCount >= 3 ? 'bg-amber-100 text-amber-700' :
+                                  'bg-gray-100 text-gray-600'
+                                }`}>
+                                  {signal.pillarCount}/6 Pillars
+                                </span>
+                              )}
+                              {signal.verdict && (
+                                <span className={`px-2 py-1 text-xs font-medium rounded ${getVerdictColor(signal.verdict)}`}>
+                                  {signal.verdict}
+                                </span>
+                              )}
                             </div>
-                          ))}
+                            <div className="flex items-center gap-4">
+                              <div className="text-right">
+                                {signal.entry && <p className="font-bold text-gray-900">Entry: {signal.entry}</p>}
+                                {signal.stop && <p className="text-sm text-gray-500">Stop: {signal.stop}</p>}
+                              </div>
+                              <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${expandedSignal === signal.ticker ? 'rotate-180' : ''}`} />
+                            </div>
+                          </button>
                         </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-8 text-center text-gray-500">
+                      <p>No specific signals extracted. Check the full report for details.</p>
+                    </div>
+                  )}
+
+                  {/* Watchlist Signals Section */}
+                  {analysisResult.watchlistSignals && (
+                    <div className="p-4 border-t border-gray-200">
+                      <h3 className="font-bold text-gray-900 mb-3">Detailed Watchlist Analysis</h3>
+                      <div className="prose prose-sm max-w-none">
+                        <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-4 rounded-lg overflow-auto max-h-96">
+                          {analysisResult.watchlistSignals}
+                        </pre>
                       </div>
                     </div>
                   )}
                 </div>
+              )}
 
-                {/* More signals... */}
-                <div className="p-4 flex items-center justify-between hover:bg-gray-50 cursor-pointer">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-amber-500 rounded-xl flex items-center justify-center text-white font-bold">
-                      A
+              {activeReportTab === 'positions' && (
+                <div className="space-y-6">
+                  {/* Committee Positions */}
+                  {analysisResult.committeePositions && (
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                      <h3 className="font-bold text-gray-900 mb-3">Three Committee Positions</h3>
+                      <div className="prose prose-sm max-w-none">
+                        <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-4 rounded-lg overflow-auto">
+                          {analysisResult.committeePositions}
+                        </pre>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-bold text-gray-900">MSFT</p>
-                      <p className="text-sm text-gray-500">Pullback to 50-day • Long</p>
+                  )}
+
+                  {/* Open Positions Review */}
+                  {analysisResult.positionsReview && (
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                      <h3 className="font-bold text-gray-900 mb-3">Open Positions Review</h3>
+                      <div className="prose prose-sm max-w-none">
+                        <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-4 rounded-lg overflow-auto">
+                          {analysisResult.positionsReview}
+                        </pre>
+                      </div>
                     </div>
-                    <span className="px-2 py-1 bg-amber-100 text-amber-700 text-xs font-medium rounded">5/6 Pillars</span>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-gray-900">Entry $415-418</p>
-                    <p className="text-sm text-gray-500">R:R 2.5:1</p>
+                  )}
+                </div>
+              )}
+
+              {activeReportTab === 'full' && (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                  <h3 className="font-bold text-gray-900 mb-3">Full Analysis Report</h3>
+                  <div className="prose prose-sm max-w-none">
+                    <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-4 rounded-lg overflow-auto max-h-[600px]">
+                      {analysisResult.fullAnalysis || 'No detailed analysis available.'}
+                    </pre>
                   </div>
                 </div>
+              )}
 
-                <div className="p-4 flex items-center justify-between hover:bg-gray-50 cursor-pointer border-t border-gray-100">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-gray-400 rounded-xl flex items-center justify-center text-white font-bold">
-                      B
-                    </div>
-                    <div>
-                      <p className="font-bold text-gray-900">AAPL</p>
-                      <p className="text-sm text-gray-500">Range breakout watch • Pending</p>
-                    </div>
-                    <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs font-medium rounded">4/6 Pillars</span>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium text-gray-600">Watchlist</p>
-                    <p className="text-sm text-gray-500">Needs volume confirm</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Committee Stance */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
-                <h3 className="font-bold text-gray-900 mb-3">Committee Stance</h3>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="p-3 bg-gray-50 rounded-lg opacity-60">
-                    <p className="font-medium text-red-700">Aggressive</p>
-                    <p className="text-xs text-gray-600">Take all 3 signals, max size</p>
-                  </div>
-                  <div className="p-3 bg-blue-50 rounded-lg border-2 border-blue-500">
-                    <p className="font-medium text-blue-700">Balanced ✓</p>
-                    <p className="text-xs text-gray-600">NVDA + MSFT only, standard size</p>
-                  </div>
-                  <div className="p-3 bg-gray-50 rounded-lg opacity-60">
-                    <p className="font-medium text-green-700">Defensive</p>
-                    <p className="text-xs text-gray-600">NVDA only, half size</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Summary */}
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                <h3 className="font-medium text-blue-900 mb-3">📋 Action Summary</h3>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs font-medium text-gray-500 mb-2">STANDARD (Shares)</p>
-                    <ul className="text-sm text-blue-800 space-y-1">
-                      <li><strong>NVDA:</strong> 15 shares at $138-140, stop $131.20</li>
-                      <li><strong>MSFT:</strong> 8 shares at $415-418, stop $398</li>
-                    </ul>
-                  </div>
-                  <div className="bg-green-50 rounded-lg p-3 border border-green-200">
-                    <p className="text-xs font-medium text-green-700 mb-2">SPREAD BET (Tax-Free)</p>
-                    <ul className="text-sm text-green-800 space-y-1">
-                      <li><strong>NVDA:</strong> £0.14/pt at 13900, stop 13120</li>
-                      <li><strong>MSFT:</strong> £0.06/pt at 41600, stop 39800</li>
-                    </ul>
-                  </div>
-                </div>
-                
-                <p className="text-sm text-blue-700 mt-3"><strong>Watch:</strong> AAPL for volume confirmation above $195</p>
+              {/* Start Over */}
+              <div className="text-center">
+                <button
+                  onClick={() => {
+                    setStep(0);
+                    setAnalysisComplete(false);
+                    setAnalysisResult(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ← Start New Analysis
+                </button>
               </div>
             </div>
           );
@@ -1000,6 +1061,7 @@ Format: Ticker, Notes (optional)"
               onClick={() => {
                 setStep(0);
                 setAnalysisComplete(false);
+                setAnalysisResult(null);
               }}
               className="text-gray-500 hover:text-gray-700 text-sm"
             >
