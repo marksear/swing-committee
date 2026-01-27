@@ -7,7 +7,7 @@ import {
   Newspaper, ChevronDown, Activity, Clock, DollarSign, ShieldAlert,
   ArrowUpRight, ArrowDownRight, Crosshair, LineChart, BarChart3,
   AlertTriangle, Eye, Scale, Flame, Gauge, Calendar, BookOpen, Lightbulb,
-  XCircle, RefreshCw
+  XCircle, RefreshCw, Sparkles
 } from 'lucide-react';
 
 export default function SwingCommitteeApp() {
@@ -26,6 +26,10 @@ export default function SwingCommitteeApp() {
   const [marketPulseData, setMarketPulseData] = useState(null);
   const [isLoadingMarketPulse, setIsLoadingMarketPulse] = useState(true);
   const [marketPulseError, setMarketPulseError] = useState(null);
+  const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
+  const [suggestions, setSuggestions] = useState(null);
+  const [suggestionsError, setSuggestionsError] = useState(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const [formData, setFormData] = useState({
     // Account
@@ -178,6 +182,45 @@ export default function SwingCommitteeApp() {
     if (currency === 'GBp') return `${price.toFixed(0)}p`; // UK pence
     if (currency === 'GBP') return `£${price.toFixed(2)}`;
     return `$${price.toFixed(2)}`;
+  };
+
+  // Generate watchlist suggestions using Claude
+  const generateSuggestions = async () => {
+    setIsGeneratingSuggestions(true);
+    setSuggestionsError(null);
+    setShowSuggestions(true);
+
+    try {
+      const response = await fetch('/api/suggestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tradeMode: formData.tradeMode })
+      });
+
+      if (!response.ok) throw new Error('Failed to generate suggestions');
+
+      const data = await response.json();
+      setSuggestions(data.suggestions);
+    } catch (error) {
+      setSuggestionsError(error.message);
+    } finally {
+      setIsGeneratingSuggestions(false);
+    }
+  };
+
+  // Add suggested tickers to watchlist
+  const addSuggestionsToWatchlist = (tickers, label) => {
+    const tickerList = tickers.join(', ');
+    const comment = `# ${label}`;
+    const newEntry = `${comment}\n${tickerList}`;
+
+    const currentWatchlist = formData.watchlist.trim();
+    const updatedWatchlist = currentWatchlist
+      ? `${currentWatchlist}\n\n${newEntry}`
+      : newEntry;
+
+    setFormData({ ...formData, watchlist: updatedWatchlist });
+    setWatchlistPrices({}); // Clear prices when watchlist changes
   };
 
   const runAnalysis = async () => {
@@ -681,7 +724,216 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
         return (
           <div className="space-y-6">
             <h2 className="text-2xl font-bold text-gray-900">Watchlist</h2>
-            <p className="text-gray-600">Enter tickers you want the committee to analyze</p>
+            <div className="flex items-center justify-between">
+              <p className="text-gray-600">Enter tickers you want the committee to analyze</p>
+              <button
+                onClick={generateSuggestions}
+                disabled={isGeneratingSuggestions}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white text-sm font-medium rounded-lg hover:from-purple-600 hover:to-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isGeneratingSuggestions ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Generate Suggestions
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Suggestions Panel */}
+            {showSuggestions && (
+              <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-purple-900 flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-purple-600" />
+                    AI-Generated Suggestions
+                  </h3>
+                  <button
+                    onClick={() => setShowSuggestions(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <XCircle className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {isGeneratingSuggestions ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
+                    <span className="ml-3 text-purple-700">Analyzing markets for swing candidates...</span>
+                  </div>
+                ) : suggestionsError ? (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+                    {suggestionsError}
+                    <button onClick={generateSuggestions} className="ml-2 underline">Try again</button>
+                  </div>
+                ) : suggestions ? (
+                  <div className="space-y-4">
+                    <p className="text-sm text-purple-700">Click a category to add those tickers to your watchlist:</p>
+
+                    {/* Short-Term Suggestions */}
+                    <div className="space-y-2">
+                      <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-blue-500" />
+                        Short-Term Swing (2-7 days)
+                      </h4>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                        {suggestions.shortTerm.usLong.length > 0 && (
+                          <button
+                            onClick={() => addSuggestionsToWatchlist(suggestions.shortTerm.usLong, 'US Long (Short-Term)')}
+                            className="p-2 bg-white border border-green-200 rounded-lg text-left hover:bg-green-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-1 text-xs text-green-600 font-medium mb-1">
+                              <TrendingUp className="w-3 h-3" /> US Long
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">{suggestions.shortTerm.usLong.join(', ')}</p>
+                          </button>
+                        )}
+                        {suggestions.shortTerm.usShort.length > 0 && (
+                          <button
+                            onClick={() => addSuggestionsToWatchlist(suggestions.shortTerm.usShort, 'US Short (Short-Term)')}
+                            className="p-2 bg-white border border-red-200 rounded-lg text-left hover:bg-red-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-1 text-xs text-red-600 font-medium mb-1">
+                              <TrendingDown className="w-3 h-3" /> US Short
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">{suggestions.shortTerm.usShort.join(', ')}</p>
+                          </button>
+                        )}
+                        {suggestions.shortTerm.ukLong.length > 0 && (
+                          <button
+                            onClick={() => addSuggestionsToWatchlist(suggestions.shortTerm.ukLong, 'UK Long (Short-Term)')}
+                            className="p-2 bg-white border border-green-200 rounded-lg text-left hover:bg-green-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-1 text-xs text-green-600 font-medium mb-1">
+                              <TrendingUp className="w-3 h-3" /> UK Long
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">{suggestions.shortTerm.ukLong.join(', ')}</p>
+                          </button>
+                        )}
+                        {suggestions.shortTerm.ukShort.length > 0 && (
+                          <button
+                            onClick={() => addSuggestionsToWatchlist(suggestions.shortTerm.ukShort, 'UK Short (Short-Term)')}
+                            className="p-2 bg-white border border-red-200 rounded-lg text-left hover:bg-red-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-1 text-xs text-red-600 font-medium mb-1">
+                              <TrendingDown className="w-3 h-3" /> UK Short
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">{suggestions.shortTerm.ukShort.join(', ')}</p>
+                          </button>
+                        )}
+                        {suggestions.shortTerm.commodLong.length > 0 && (
+                          <button
+                            onClick={() => addSuggestionsToWatchlist(suggestions.shortTerm.commodLong, 'Commodities Long (Short-Term)')}
+                            className="p-2 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-1 text-xs text-amber-600 font-medium mb-1">
+                              <TrendingUp className="w-3 h-3" /> Commod Long
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">{suggestions.shortTerm.commodLong.join(', ')}</p>
+                          </button>
+                        )}
+                        {suggestions.shortTerm.commodShort.length > 0 && (
+                          <button
+                            onClick={() => addSuggestionsToWatchlist(suggestions.shortTerm.commodShort, 'Commodities Short (Short-Term)')}
+                            className="p-2 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-1 text-xs text-amber-600 font-medium mb-1">
+                              <TrendingDown className="w-3 h-3" /> Commod Short
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">{suggestions.shortTerm.commodShort.join(', ')}</p>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Position Suggestions */}
+                    <div className="space-y-2">
+                      <h4 className="font-medium text-gray-900 flex items-center gap-2">
+                        <Target className="w-4 h-4 text-indigo-500" />
+                        Position Swing (1-4 weeks)
+                      </h4>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                        {suggestions.position.usLong.length > 0 && (
+                          <button
+                            onClick={() => addSuggestionsToWatchlist(suggestions.position.usLong, 'US Long (Position)')}
+                            className="p-2 bg-white border border-green-200 rounded-lg text-left hover:bg-green-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-1 text-xs text-green-600 font-medium mb-1">
+                              <TrendingUp className="w-3 h-3" /> US Long
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">{suggestions.position.usLong.join(', ')}</p>
+                          </button>
+                        )}
+                        {suggestions.position.usShort.length > 0 && (
+                          <button
+                            onClick={() => addSuggestionsToWatchlist(suggestions.position.usShort, 'US Short (Position)')}
+                            className="p-2 bg-white border border-red-200 rounded-lg text-left hover:bg-red-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-1 text-xs text-red-600 font-medium mb-1">
+                              <TrendingDown className="w-3 h-3" /> US Short
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">{suggestions.position.usShort.join(', ')}</p>
+                          </button>
+                        )}
+                        {suggestions.position.ukLong.length > 0 && (
+                          <button
+                            onClick={() => addSuggestionsToWatchlist(suggestions.position.ukLong, 'UK Long (Position)')}
+                            className="p-2 bg-white border border-green-200 rounded-lg text-left hover:bg-green-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-1 text-xs text-green-600 font-medium mb-1">
+                              <TrendingUp className="w-3 h-3" /> UK Long
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">{suggestions.position.ukLong.join(', ')}</p>
+                          </button>
+                        )}
+                        {suggestions.position.ukShort.length > 0 && (
+                          <button
+                            onClick={() => addSuggestionsToWatchlist(suggestions.position.ukShort, 'UK Short (Position)')}
+                            className="p-2 bg-white border border-red-200 rounded-lg text-left hover:bg-red-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-1 text-xs text-red-600 font-medium mb-1">
+                              <TrendingDown className="w-3 h-3" /> UK Short
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">{suggestions.position.ukShort.join(', ')}</p>
+                          </button>
+                        )}
+                        {suggestions.position.commodLong.length > 0 && (
+                          <button
+                            onClick={() => addSuggestionsToWatchlist(suggestions.position.commodLong, 'Commodities Long (Position)')}
+                            className="p-2 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-1 text-xs text-amber-600 font-medium mb-1">
+                              <TrendingUp className="w-3 h-3" /> Commod Long
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">{suggestions.position.commodLong.join(', ')}</p>
+                          </button>
+                        )}
+                        {suggestions.position.commodShort.length > 0 && (
+                          <button
+                            onClick={() => addSuggestionsToWatchlist(suggestions.position.commodShort, 'Commodities Short (Position)')}
+                            className="p-2 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-1 text-xs text-amber-600 font-medium mb-1">
+                              <TrendingDown className="w-3 h-3" /> Commod Short
+                            </div>
+                            <p className="text-xs text-gray-600 truncate">{suggestions.position.commodShort.join(', ')}</p>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-purple-600 italic">
+                      Note: Suggestions are based on recent momentum. Always verify with your own analysis.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Watchlist Tickers</label>
@@ -1240,18 +1492,17 @@ Format: Ticker, Notes (we'll fetch live prices)"
           );
         }
 
+        // Fallback - analysis should auto-start when reaching step 5
+        // This handles edge cases like page refresh or direct navigation
         return (
           <div className="text-center py-12 space-y-6">
             <Activity className="w-16 h-16 text-blue-500 mx-auto" />
-            <h2 className="text-2xl font-bold text-gray-900">Ready to Scan</h2>
-            <p className="text-gray-600 max-w-md mx-auto">
-              The Swing Committee will analyze your watchlist using all six pillars.
-            </p>
+            <p className="text-gray-600">Starting analysis...</p>
             <button
               onClick={runAnalysis}
-              className="px-8 py-4 bg-gradient-to-r from-blue-500 to-indigo-500 text-white font-medium rounded-xl hover:from-blue-600 hover:to-indigo-600 transition-colors shadow-lg"
+              className="px-6 py-3 bg-blue-500 text-white font-medium rounded-xl hover:bg-blue-600 transition-colors"
             >
-              Run Swing Analysis
+              Start Analysis
             </button>
           </div>
         );
@@ -1312,7 +1563,15 @@ Format: Ticker, Notes (we'll fetch live prices)"
             )}
             {step < 5 && (
               <button
-                onClick={() => setStep(step + 1)}
+                onClick={() => {
+                  if (step === 4) {
+                    // Skip the "Ready to Scan" screen - go directly to step 5 and start analysis
+                    setStep(5);
+                    runAnalysis();
+                  } else {
+                    setStep(step + 1);
+                  }
+                }}
                 className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800"
               >
                 {step === 0 ? 'Get Started' : step === 4 ? 'Run Analysis' : 'Continue'}
