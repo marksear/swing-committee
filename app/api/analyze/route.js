@@ -1067,24 +1067,25 @@ function extractSection(text, startMarker, endMarker) {
 function extractSignals(text) {
   const signals = []
 
-  // Only match specific pattern: "## TRADE SIGNAL: TICKER" at start of line
-  // This is the exact format Claude uses for trade signals
-  const tradeSignalPattern = /^#{1,3}\s*TRADE SIGNAL[:\s]+([A-Z]{2,5}(?:\.L)?)\s*$/gm
+  // Match pattern: "## TRADE SIGNAL: TICKER" or "## TRADE SIGNAL: TICKER.L" or "## TRADE SIGNAL: TICKER (Company Name)"
+  // The ticker can be followed by optional .L suffix and optional company name in parentheses
+  const tradeSignalPattern = /^#{1,3}\s*TRADE SIGNAL[:\s]+([A-Z]{2,5})(?:\.L)?(?:\s*\([^)]*\))?\s*$/gm
 
   for (const match of text.matchAll(tradeSignalPattern)) {
-    const ticker = match[1].replace(/\.L$/i, '').toUpperCase()
+    const ticker = match[1].toUpperCase()
     if (signals.find(s => s.ticker === ticker)) continue
 
     // Find the section for this ticker (until next ## header or ---)
     const sectionStart = match.index
-    const nextSection = text.substring(sectionStart + match[0].length).search(/\n#{1,3}\s+(?:TRADE SIGNAL|PART|$)|---/)
+    const nextSection = text.substring(sectionStart + match[0].length).search(/\n#{1,3}\s+(?:TRADE SIGNAL|PART)|---/)
     const sectionEnd = nextSection > 0 ? sectionStart + match[0].length + nextSection : sectionStart + 6000
     const section = text.substring(sectionStart, Math.min(sectionEnd, text.length))
 
-    // Extract company name
+    // Extract company name from header or COMPANY field
+    const headerNameMatch = match[0].match(/\(([^)]+)\)/)
     const companyMatch = section.match(/\*\*COMPANY[:\s]*\*\*\s*([^\n]+)/i) ||
                         section.match(/COMPANY[:\s]*([^\n*]+)/i)
-    const name = companyMatch ? companyMatch[1].trim().replace(/\*+/g, '') : ticker
+    const name = headerNameMatch?.[1] || (companyMatch ? companyMatch[1].trim().replace(/\*+/g, '') : ticker)
 
     const signal = parseSignalSection(section, ticker, name)
     if (signal) {
