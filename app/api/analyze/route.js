@@ -1067,105 +1067,186 @@ function extractSection(text, startMarker, endMarker) {
 function extractSignals(text) {
   const signals = []
 
-  // Look for signal sections with ticker headers
-  const tickerMatches = text.matchAll(/###\s*\[?([A-Z0-9]{2,6})\]?\s*[-—]\s*([^\n]+)/g)
-  for (const match of tickerMatches) {
-    const ticker = match[1]
-    const name = match[2].trim()
+  // Invalid tickers to filter out
+  const invalidTickers = ['BUY', 'SELL', 'HOLD', 'TAKE', 'LONG', 'SHORT', 'TRADE', 'NO', 'THE', 'FOR', 'AND', 'WITH']
+
+  // Pattern 1: Look for signal sections with ### Ticker - Name format
+  const tickerHeaderMatches = text.matchAll(/###\s*\[?([A-Z0-9\.]{2,10})\]?\s*[-—:]\s*([^\n]+)/g)
+  for (const match of tickerHeaderMatches) {
+    const ticker = match[1].replace(/[.\[\]]/g, '')
+    if (invalidTickers.includes(ticker)) continue
+
+    const name = match[2].trim().replace(/\*+/g, '')
 
     // Find the section for this ticker
     const sectionStart = match.index
-    const sectionEnd = text.indexOf('###', sectionStart + 1)
-    const section = text.substring(sectionStart, sectionEnd > 0 ? sectionEnd : sectionStart + 2000)
+    const nextSectionMatch = text.substring(sectionStart + 10).search(/\n###\s|TRADE SIGNAL:|---/)
+    const sectionEnd = nextSectionMatch > 0 ? sectionStart + 10 + nextSectionMatch : sectionStart + 3000
+    const section = text.substring(sectionStart, Math.min(sectionEnd, text.length))
 
-    // Extract grade
-    const gradeMatch = section.match(/Signal Grade[:\s]*\*?\*?([A-C]\+?)/i)
-    const grade = gradeMatch ? gradeMatch[1] : null
+    const signal = parseSignalSection(section, ticker, name)
+    if (signal && !signals.find(s => s.ticker === signal.ticker)) {
+      signals.push(signal)
+    }
+  }
 
-    // Extract verdict
-    const verdictMatch = section.match(/Verdict[:\s]*\*?\*?(TAKE TRADE|WATCHLIST|NO TRADE)/i)
-    const verdict = verdictMatch ? verdictMatch[1] : null
+  // Pattern 2: Look for **TICKER** or **[TICKER]** bold ticker format
+  const boldTickerMatches = text.matchAll(/\*\*\[?([A-Z0-9\.]{2,10})\]?\*\*\s*[-–:]*\s*([^\n]*)/g)
+  for (const match of boldTickerMatches) {
+    const ticker = match[1].replace(/[.\[\]]/g, '')
+    if (invalidTickers.includes(ticker)) continue
+    if (signals.find(s => s.ticker === ticker)) continue
 
-    // Extract pillar count
-    const pillarMatch = section.match(/Pillar Count[:\s]*\*?\*?(\d)\/6/i)
-    const pillarCount = pillarMatch ? parseInt(pillarMatch[1]) : null
+    const name = match[2].trim().replace(/\*+/g, '')
 
-    // Extract entry zone
-    const entryMatch = section.match(/Entry Zone[:\s|]*£?([\d.]+)\s*[-–]\s*£?([\d.]+)/i)
-    const entry = entryMatch ? `£${entryMatch[1]} - £${entryMatch[2]}` : null
+    const sectionStart = match.index
+    const nextMatch = text.substring(sectionStart + 10).search(/\n\*\*[A-Z]{2,}|###|TRADE SIGNAL:|---/)
+    const sectionEnd = nextMatch > 0 ? sectionStart + 10 + nextMatch : sectionStart + 2000
+    const section = text.substring(sectionStart, Math.min(sectionEnd, text.length))
 
-    // Extract stop
-    const stopMatch = section.match(/Stop Loss[:\s|]*£?([\d.]+)/i)
-    const stop = stopMatch ? `£${stopMatch[1]}` : null
+    const signal = parseSignalSection(section, ticker, name || ticker)
+    if (signal) {
+      signals.push(signal)
+    }
+  }
 
-    // Extract setup type
-    const setupMatch = section.match(/Setup Type[:\s]*([^\n]+)/i)
-    const setupType = setupMatch ? setupMatch[1].trim() : null
+  // Pattern 3: Look for TRADE SIGNAL: format
+  const signalMatches = text.matchAll(/TRADE SIGNAL[:\s]+\[?([A-Z0-9\.]{2,10})\]?/gi)
+  for (const match of signalMatches) {
+    const ticker = match[1].replace(/[.\[\]]/g, '')
+    if (invalidTickers.includes(ticker)) continue
+    if (signals.find(s => s.ticker === ticker)) continue
 
-    // Extract direction
-    const directionMatch = section.match(/Direction[:\s]*(LONG|SHORT|NO TRADE)/i)
-    const direction = directionMatch ? directionMatch[1] : null
+    const sectionStart = match.index
+    const nextMatch = text.indexOf('TRADE SIGNAL:', sectionStart + 15)
+    const sectionEnd = nextMatch > 0 ? nextMatch : sectionStart + 3000
+    const section = text.substring(sectionStart, Math.min(sectionEnd, text.length))
+
+    const companyMatch = section.match(/(?:COMPANY|Name)[:\s]*([^\n]+)/i)
+    const name = companyMatch ? companyMatch[1].trim().replace(/\*+/g, '') : ticker
+
+    const signal = parseSignalSection(section, ticker, name)
+    if (signal) {
+      signals.push(signal)
+    }
+  }
+
+  // Pattern 4: Look for numbered signals like "1. **LLOY** - Lloyds Banking"
+  const numberedMatches = text.matchAll(/\d+\.\s*\*?\*?\[?([A-Z0-9\.]{2,10})\]?\*?\*?\s*[-–:]\s*([^\n]+)/g)
+  for (const match of numberedMatches) {
+    const ticker = match[1].replace(/[.\[\]]/g, '')
+    if (invalidTickers.includes(ticker)) continue
+    if (signals.find(s => s.ticker === ticker)) continue
+
+    const name = match[2].trim().replace(/\*+/g, '')
+
+    const sectionStart = match.index
+    const nextMatch = text.substring(sectionStart + 10).search(/\n\d+\.\s*\*?\*?[A-Z]{2,}|###|TRADE SIGNAL:|---/)
+    const sectionEnd = nextMatch > 0 ? sectionStart + 10 + nextMatch : sectionStart + 2000
+    const section = text.substring(sectionStart, Math.min(sectionEnd, text.length))
+
+    const signal = parseSignalSection(section, ticker, name)
+    if (signal) {
+      signals.push(signal)
+    }
+  }
+
+  // Pattern 5: Table format
+  const tableMatches = text.matchAll(/\|\s*([A-Z0-9\.]{2,10})\s*\|([^|]*)\|/g)
+  for (const match of tableMatches) {
+    const ticker = match[1].replace(/[.\[\]]/g, '')
+    if (invalidTickers.includes(ticker)) continue
+    if (['Ticker', 'Stock', 'Symbol', 'Action'].includes(ticker)) continue
+    if (signals.find(s => s.ticker === ticker)) continue
+
+    // Try to find the full row
+    const rowStart = text.lastIndexOf('|', match.index)
+    const rowEnd = text.indexOf('\n', match.index)
+    const row = text.substring(rowStart, rowEnd)
+
+    // Extract what we can from the row
+    const cells = row.split('|').map(c => c.trim()).filter(c => c)
 
     signals.push({
       ticker,
-      name,
-      grade,
-      verdict,
-      pillarCount,
-      entry,
-      stop,
-      setupType,
-      direction
+      name: cells[1] || ticker,
+      direction: row.match(/\b(LONG|SHORT)\b/i)?.[1]?.toUpperCase() || null,
+      verdict: row.match(/\b(TAKE TRADE|WATCHLIST|NO TRADE)\b/i)?.[1]?.toUpperCase() || null,
+      rawSection: row
     })
   }
 
-  // Also look for TRADE SIGNAL: format
-  const signalMatches = text.matchAll(/TRADE SIGNAL:\s*\[?([A-Z0-9]{2,6})\]?/g)
-  for (const match of signalMatches) {
-    const ticker = match[1]
-    const existing = signals.find(s => s.ticker === ticker)
-    if (!existing) {
-      const sectionStart = match.index
-      const sectionEnd = text.indexOf('TRADE SIGNAL:', sectionStart + 1)
-      const section = text.substring(sectionStart, sectionEnd > 0 ? sectionEnd : sectionStart + 3000)
+  return signals.filter(s => s.ticker && s.ticker.length >= 2 && s.ticker.length <= 6)
+}
 
-      // Extract company name
-      const companyMatch = section.match(/COMPANY[:\s]*([^\n]+)/i)
-      const name = companyMatch ? companyMatch[1].trim() : ticker
+function parseSignalSection(section, ticker, name) {
+  // Extract grade - multiple patterns
+  const gradeMatch = section.match(/(?:Signal\s*)?Grade[:\s]*\*?\*?([A-C]\+?)\*?\*?/i) ||
+                     section.match(/\*\*([A-C]\+?)\*\*\s*(?:Grade|Signal)/i) ||
+                     section.match(/Grade[:\s|]+([A-C]\+?)/i)
+  const grade = gradeMatch ? gradeMatch[1].toUpperCase() : null
 
-      // Extract grade
-      const gradeMatch = section.match(/Signal Grade[:\s]*\*?\*?([A-C]\+?)/i)
-      const grade = gradeMatch ? gradeMatch[1] : null
+  // Extract verdict - multiple patterns
+  const verdictMatch = section.match(/(?:FINAL\s*)?Verdict[:\s]*\*?\*?(TAKE TRADE|WATCHLIST|NO TRADE|PASS)/i) ||
+                       section.match(/\*\*(TAKE TRADE|WATCHLIST|NO TRADE|PASS)\*\*/i) ||
+                       section.match(/Decision[:\s]*(TAKE TRADE|WATCHLIST|NO TRADE|PASS)/i)
+  const verdict = verdictMatch ? verdictMatch[1].toUpperCase() : null
 
-      // Extract verdict
-      const verdictMatch = section.match(/VERDICT[:\s]*\*?\*?(TAKE TRADE|WATCHLIST|NO TRADE)/i)
-      const verdict = verdictMatch ? verdictMatch[1] : null
+  // Extract pillar count - multiple patterns
+  const pillarMatch = section.match(/(?:Pillar\s*)?Count[:\s]*\*?\*?(\d)\s*\/\s*6/i) ||
+                      section.match(/(\d)\s*\/\s*6\s*Pillars?/i) ||
+                      section.match(/Pillars?[:\s]*(\d)\s*\/\s*6/i) ||
+                      section.match(/(\d)\/6/i)
+  const pillarCount = pillarMatch ? parseInt(pillarMatch[1]) : null
 
-      // Extract pillar count
-      const pillarMatch = section.match(/PILLAR COUNT[:\s]*\*?\*?(\d)\/6/i)
-      const pillarCount = pillarMatch ? parseInt(pillarMatch[1]) : null
-
-      signals.push({
-        ticker,
-        name,
-        grade,
-        verdict,
-        pillarCount
-      })
-    }
+  // Extract entry zone - multiple patterns with USD/GBP support
+  const entryMatch = section.match(/Entry(?:\s*Zone)?[:\s|]*[£$]?([\d,.]+)\s*[-–to]\s*[£$]?([\d,.]+)/i) ||
+                     section.match(/Entry[:\s|]*[£$]?([\d,.]+)/i)
+  let entry = null
+  if (entryMatch) {
+    const price1 = entryMatch[1].replace(/,/g, '')
+    const price2 = entryMatch[2]?.replace(/,/g, '')
+    entry = price2 ? `${price1} - ${price2}` : price1
   }
 
-  // Also look for table format signals
-  const tableMatches = text.matchAll(/\|\s*([A-Z]{2,6})\s*\|[^|]*\|[^|]*\|[^|]*£?([\d.]+)[^|]*\|/g)
-  for (const match of tableMatches) {
-    const existing = signals.find(s => s.ticker === match[1])
-    if (!existing && match[1] !== 'Ticker' && match[1] !== 'Action') {
-      signals.push({
-        ticker: match[1],
-        entry: match[2] ? `£${match[2]}` : null
-      })
-    }
-  }
+  // Extract stop loss - multiple patterns
+  const stopMatch = section.match(/Stop(?:\s*Loss)?[:\s|]*[£$]?([\d,.]+)/i) ||
+                    section.match(/Initial Stop[:\s|]*[£$]?([\d,.]+)/i)
+  const stop = stopMatch ? stopMatch[1].replace(/,/g, '') : null
 
-  return signals.filter(s => s.ticker && s.ticker.length >= 2)
+  // Extract target
+  const targetMatch = section.match(/Target[:\s|]*[£$]?([\d,.]+)/i) ||
+                      section.match(/Price Target[:\s|]*[£$]?([\d,.]+)/i)
+  const target = targetMatch ? targetMatch[1].replace(/,/g, '') : null
+
+  // Extract setup type
+  const setupMatch = section.match(/Setup(?:\s*Type)?[:\s]*([^\n|]+)/i) ||
+                     section.match(/Pattern[:\s]*([^\n|]+)/i)
+  const setupType = setupMatch ? setupMatch[1].trim().replace(/\*+/g, '').substring(0, 50) : null
+
+  // Extract direction
+  const directionMatch = section.match(/Direction[:\s]*(LONG|SHORT)/i) ||
+                         section.match(/Position[:\s]*(LONG|SHORT)/i) ||
+                         section.match(/\b(LONG|SHORT)\s*(?:position|trade|setup)/i)
+  const direction = directionMatch ? directionMatch[1].toUpperCase() : null
+
+  // Extract risk/reward
+  const rrMatch = section.match(/R(?:isk)?[\/:]?R(?:eward)?[:\s]*([\d.]+)[:\s]*([\d.]+)/i) ||
+                  section.match(/Risk[:\s]*[\d.]+[:\s]*Reward[:\s]*([\d.]+)/i)
+  const riskReward = rrMatch ? `${rrMatch[1]}:${rrMatch[2] || '1'}` : null
+
+  return {
+    ticker,
+    name: name || ticker,
+    grade,
+    verdict,
+    pillarCount,
+    entry,
+    stop,
+    target,
+    setupType,
+    direction,
+    riskReward,
+    rawSection: section.substring(0, 1500) // Store for expanded view
+  }
 }

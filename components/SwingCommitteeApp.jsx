@@ -982,7 +982,13 @@ Format: Ticker, Notes (we'll fetch live prices)"
                   </div>
                   <div className="bg-white/10 rounded-lg p-3">
                     <p className="text-blue-200 text-xs">Market Regime</p>
-                    <p className="text-lg font-bold text-green-400">{marketPulseData.us.regime}</p>
+                    <p className={`text-lg font-bold ${
+                      marketPulseData?.us?.regime === 'Trending Up' ? 'text-green-400' :
+                      marketPulseData?.us?.regime === 'Trending Down' ? 'text-red-400' :
+                      marketPulseData?.us?.regime === 'Volatile' ? 'text-orange-400' :
+                      marketPulseData?.us?.regime === 'Choppy' ? 'text-amber-400' :
+                      'text-blue-300'
+                    }`}>{marketPulseData?.us?.regime || 'Analyzing...'}</p>
                   </div>
                 </div>
               </div>
@@ -1089,6 +1095,72 @@ Format: Ticker, Notes (we'll fetch live prices)"
                               <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${expandedSignal === signal.ticker ? 'rotate-180' : ''}`} />
                             </div>
                           </button>
+
+                          {/* Expanded signal details */}
+                          {expandedSignal === signal.ticker && (
+                            <div className="px-4 pb-4 bg-gray-50 border-t border-gray-100">
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-4">
+                                {signal.grade && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">Grade</p>
+                                    <p className="font-bold text-gray-900">{signal.grade}</p>
+                                  </div>
+                                )}
+                                {signal.direction && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">Direction</p>
+                                    <p className="font-bold text-gray-900">{signal.direction}</p>
+                                  </div>
+                                )}
+                                {signal.entry && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">Entry Zone</p>
+                                    <p className="font-bold text-gray-900">{signal.entry}</p>
+                                  </div>
+                                )}
+                                {signal.stop && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">Stop Loss</p>
+                                    <p className="font-bold text-red-600">{signal.stop}</p>
+                                  </div>
+                                )}
+                                {signal.target && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">Target</p>
+                                    <p className="font-bold text-green-600">{signal.target}</p>
+                                  </div>
+                                )}
+                                {signal.riskReward && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">Risk:Reward</p>
+                                    <p className="font-bold text-gray-900">{signal.riskReward}</p>
+                                  </div>
+                                )}
+                                {signal.pillarCount && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">Pillar Count</p>
+                                    <p className="font-bold text-gray-900">{signal.pillarCount}/6</p>
+                                  </div>
+                                )}
+                                {signal.setupType && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">Setup Type</p>
+                                    <p className="font-bold text-gray-900">{signal.setupType}</p>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Show raw analysis section if available */}
+                              {signal.rawSection && (
+                                <div className="mt-3 pt-3 border-t border-gray-200">
+                                  <p className="text-xs text-gray-500 uppercase mb-2">Full Analysis</p>
+                                  <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-white p-3 rounded-lg overflow-auto max-h-64">
+                                    {signal.rawSection}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
