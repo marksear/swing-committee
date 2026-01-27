@@ -1091,21 +1091,35 @@ function extractSignals(text) {
   }
 
   // Primary pattern: Look for TRADE SIGNAL blocks with ticker
-  // Format: "### [TICKER] - Company Name" or "**TICKER** - Company Name"
-  const tradeSignalPattern = /(?:###\s*|TRADE SIGNAL[:\s]*|\*\*)\[?([A-Z]{2,5}(?:\.L)?)\]?\*?\*?\s*[-—:]+\s*([A-Za-z][^\n]*)/g
+  // Matches: "## TRADE SIGNAL: NVDA", "### NVDA - Company", "**NVDA** - Company"
+  const tradeSignalPattern = /(?:#{2,3}\s*)?(?:TRADE SIGNAL[:\s]*)?([A-Z]{2,5}(?:\.L)?)\b(?!\s*\|)/gm
 
+  // Find all potential ticker mentions and filter
   for (const match of text.matchAll(tradeSignalPattern)) {
     const ticker = match[1].replace(/[.\[\]L]/g, '').toUpperCase()
     if (!isValidTicker(ticker)) continue
     if (signals.find(s => s.ticker === ticker)) continue
 
-    const name = match[2].trim().replace(/\*+/g, '').substring(0, 100)
+    // Check context - must be near "TRADE SIGNAL" or "COMPANY" or be a section header
+    const contextStart = Math.max(0, match.index - 50)
+    const contextEnd = Math.min(text.length, match.index + 200)
+    const context = text.substring(contextStart, contextEnd)
 
-    // Find the section for this ticker (until next signal or section break)
+    // Skip if this is just a mention in prose, not a signal header
+    const isSignalHeader = /(?:TRADE SIGNAL|#{2,3}\s*\[?[A-Z]{2,5}|COMPANY[:\s]*\*?\*?[A-Z])/i.test(context)
+    if (!isSignalHeader) continue
+
+    // Find the section for this ticker (until next signal or major section break)
     const sectionStart = match.index
-    const nextSection = text.substring(sectionStart + match[0].length).search(/\n(?:###\s*\[?[A-Z]{2,5}|TRADE SIGNAL|\*\*[A-Z]{2,5}\*\*|---\s*\n|## )/i)
-    const sectionEnd = nextSection > 0 ? sectionStart + match[0].length + nextSection : sectionStart + 4000
+    const nextSection = text.substring(sectionStart + 10).search(/\n(?:#{2,3}\s*(?:TRADE SIGNAL|\[?[A-Z]{2,5}\]?)|\*\*[A-Z]{2,5}\*\*|---\s*\n)/i)
+    const sectionEnd = nextSection > 0 ? sectionStart + 10 + nextSection : sectionStart + 5000
     const section = text.substring(sectionStart, Math.min(sectionEnd, text.length))
+
+    // Try to extract company name from the section
+    const companyMatch = section.match(/\*\*COMPANY[:\s]*\*\*\s*([^\n]+)/i) ||
+                        section.match(/Company[:\s]*([^\n]+)/i) ||
+                        section.match(/[-—:]\s*([A-Z][A-Za-z\s]+(?:Inc|Corp|Ltd|PLC)?)/i)
+    const name = companyMatch ? companyMatch[1].trim().replace(/\*+/g, '').substring(0, 100) : ticker
 
     const signal = parseSignalSection(section, ticker, name)
     if (signal) {

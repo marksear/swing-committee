@@ -23,9 +23,10 @@ export async function GET() {
 async function fetchMarketData(symbol, market) {
   try {
     // Fetch current price and chart data for regime analysis
+    // Use 1 year to ensure we have enough data for 200-day MA
     const [quoteData, chartData] = await Promise.all([
       fetchYahooQuote(symbol),
-      fetchYahooChart(symbol, '3mo') // 3 months for MA calculations
+      fetchYahooChart(symbol, '1y') // 1 year for MA calculations (need 200+ days)
     ])
 
     if (!quoteData || !chartData) {
@@ -122,8 +123,8 @@ function calculateMA(prices, period) {
 }
 
 function determineRegime(price, ma50, ma200, prices) {
-  // Check if we have enough data
-  if (!ma50 || !ma200 || prices.length < 20) {
+  // Check if we have minimum data
+  if (prices.length < 20) {
     return 'Unknown'
   }
 
@@ -141,14 +142,43 @@ function determineRegime(price, ma50, ma200, prices) {
     return 'Volatile'
   }
 
-  // Strong uptrend
-  if (price > ma50 && ma50 > ma200 && priceChange20d > 3) {
-    return 'Trending Up'
-  }
+  // If we have MA data, use it for more nuanced analysis
+  if (ma50 && ma200) {
+    // Strong uptrend: price > 50MA > 200MA with positive momentum
+    if (price > ma50 && ma50 > ma200 && priceChange20d > 2) {
+      return 'Trending Up'
+    }
 
-  // Strong downtrend
-  if (price < ma50 && ma50 < ma200 && priceChange20d < -3) {
-    return 'Trending Down'
+    // Strong downtrend: price < 50MA < 200MA with negative momentum
+    if (price < ma50 && ma50 < ma200 && priceChange20d < -2) {
+      return 'Trending Down'
+    }
+
+    // Moderate uptrend: price above both MAs
+    if (price > ma50 && price > ma200) {
+      return 'Trending Up'
+    }
+
+    // Moderate downtrend: price below both MAs
+    if (price < ma50 && price < ma200) {
+      return 'Trending Down'
+    }
+  } else if (ma50) {
+    // Fallback to just 50MA if we don't have 200MA
+    if (price > ma50 && priceChange20d > 2) {
+      return 'Trending Up'
+    }
+    if (price < ma50 && priceChange20d < -2) {
+      return 'Trending Down'
+    }
+  } else {
+    // No MAs available, use momentum only
+    if (priceChange20d > 3) {
+      return 'Trending Up'
+    }
+    if (priceChange20d < -3) {
+      return 'Trending Down'
+    }
   }
 
   // Choppy/ranging
