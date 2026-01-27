@@ -1067,82 +1067,44 @@ function extractSection(text, startMarker, endMarker) {
 function extractSignals(text) {
   const signals = []
 
-  // Invalid tickers to filter out
-  const invalidTickers = ['BUY', 'SELL', 'HOLD', 'TAKE', 'LONG', 'SHORT', 'TRADE', 'NO', 'THE', 'FOR', 'AND', 'WITH']
+  // Invalid tickers to filter out - expanded list
+  const invalidTickers = [
+    'BUY', 'SELL', 'HOLD', 'TAKE', 'LONG', 'SHORT', 'TRADE', 'NO', 'THE', 'FOR', 'AND', 'WITH',
+    'PASS', 'FAIL', 'YES', 'NOT', 'SET', 'GET', 'PUT', 'ALL', 'NEW', 'OLD', 'TOP', 'LOW', 'HIGH',
+    'BULL', 'BEAR', 'CALL', 'NONE', 'NULL', 'TRUE', 'FALSE', 'STOP', 'OPEN', 'CLOSE',
+    'SETUP', 'ENTRY', 'EXIT', 'TARGET', 'PRICE', 'RISK', 'REWARD', 'MARKET', 'STOCK',
+    'GRADE', 'SIGNAL', 'VERDICT', 'PILLAR', 'COUNT', 'ZONE', 'LOSS', 'TOTAL',
+    'CATALYST', 'TIMING', 'IDENTIFICATION', 'COMPANY', 'SECTOR', 'CAP', 'VOL'
+  ]
 
-  // Pattern 1: Look for signal sections with ### Ticker - Name format
-  const tickerHeaderMatches = text.matchAll(/###\s*\[?([A-Z0-9\.]{2,10})\]?\s*[-—:]\s*([^\n]+)/g)
-  for (const match of tickerHeaderMatches) {
-    const ticker = match[1].replace(/[.\[\]]/g, '')
-    if (invalidTickers.includes(ticker)) continue
-
-    const name = match[2].trim().replace(/\*+/g, '')
-
-    // Find the section for this ticker
-    const sectionStart = match.index
-    const nextSectionMatch = text.substring(sectionStart + 10).search(/\n###\s|TRADE SIGNAL:|---/)
-    const sectionEnd = nextSectionMatch > 0 ? sectionStart + 10 + nextSectionMatch : sectionStart + 3000
-    const section = text.substring(sectionStart, Math.min(sectionEnd, text.length))
-
-    const signal = parseSignalSection(section, ticker, name)
-    if (signal && !signals.find(s => s.ticker === signal.ticker)) {
-      signals.push(signal)
-    }
+  // Valid ticker pattern: 2-5 letters, optionally ending with numbers, or with .L suffix
+  const isValidTicker = (ticker) => {
+    if (!ticker) return false
+    const cleaned = ticker.replace(/[.\[\]]/g, '').toUpperCase()
+    if (cleaned.length < 2 || cleaned.length > 5) return false
+    if (invalidTickers.includes(cleaned)) return false
+    // Must start with a letter and be mostly letters
+    if (!/^[A-Z]/.test(cleaned)) return false
+    // Allow tickers like NVDA, AAPL, TSLA, LLOY, HSBA, BP
+    if (!/^[A-Z]{2,5}$/.test(cleaned)) return false
+    return true
   }
 
-  // Pattern 2: Look for **TICKER** or **[TICKER]** bold ticker format
-  const boldTickerMatches = text.matchAll(/\*\*\[?([A-Z0-9\.]{2,10})\]?\*\*\s*[-–:]*\s*([^\n]*)/g)
-  for (const match of boldTickerMatches) {
-    const ticker = match[1].replace(/[.\[\]]/g, '')
-    if (invalidTickers.includes(ticker)) continue
+  // Primary pattern: Look for TRADE SIGNAL blocks with ticker
+  // Format: "### [TICKER] - Company Name" or "**TICKER** - Company Name"
+  const tradeSignalPattern = /(?:###\s*|TRADE SIGNAL[:\s]*|\*\*)\[?([A-Z]{2,5}(?:\.L)?)\]?\*?\*?\s*[-—:]+\s*([A-Za-z][^\n]*)/g
+
+  for (const match of text.matchAll(tradeSignalPattern)) {
+    const ticker = match[1].replace(/[.\[\]L]/g, '').toUpperCase()
+    if (!isValidTicker(ticker)) continue
     if (signals.find(s => s.ticker === ticker)) continue
 
-    const name = match[2].trim().replace(/\*+/g, '')
+    const name = match[2].trim().replace(/\*+/g, '').substring(0, 100)
 
+    // Find the section for this ticker (until next signal or section break)
     const sectionStart = match.index
-    const nextMatch = text.substring(sectionStart + 10).search(/\n\*\*[A-Z]{2,}|###|TRADE SIGNAL:|---/)
-    const sectionEnd = nextMatch > 0 ? sectionStart + 10 + nextMatch : sectionStart + 2000
-    const section = text.substring(sectionStart, Math.min(sectionEnd, text.length))
-
-    const signal = parseSignalSection(section, ticker, name || ticker)
-    if (signal) {
-      signals.push(signal)
-    }
-  }
-
-  // Pattern 3: Look for TRADE SIGNAL: format
-  const signalMatches = text.matchAll(/TRADE SIGNAL[:\s]+\[?([A-Z0-9\.]{2,10})\]?/gi)
-  for (const match of signalMatches) {
-    const ticker = match[1].replace(/[.\[\]]/g, '')
-    if (invalidTickers.includes(ticker)) continue
-    if (signals.find(s => s.ticker === ticker)) continue
-
-    const sectionStart = match.index
-    const nextMatch = text.indexOf('TRADE SIGNAL:', sectionStart + 15)
-    const sectionEnd = nextMatch > 0 ? nextMatch : sectionStart + 3000
-    const section = text.substring(sectionStart, Math.min(sectionEnd, text.length))
-
-    const companyMatch = section.match(/(?:COMPANY|Name)[:\s]*([^\n]+)/i)
-    const name = companyMatch ? companyMatch[1].trim().replace(/\*+/g, '') : ticker
-
-    const signal = parseSignalSection(section, ticker, name)
-    if (signal) {
-      signals.push(signal)
-    }
-  }
-
-  // Pattern 4: Look for numbered signals like "1. **LLOY** - Lloyds Banking"
-  const numberedMatches = text.matchAll(/\d+\.\s*\*?\*?\[?([A-Z0-9\.]{2,10})\]?\*?\*?\s*[-–:]\s*([^\n]+)/g)
-  for (const match of numberedMatches) {
-    const ticker = match[1].replace(/[.\[\]]/g, '')
-    if (invalidTickers.includes(ticker)) continue
-    if (signals.find(s => s.ticker === ticker)) continue
-
-    const name = match[2].trim().replace(/\*+/g, '')
-
-    const sectionStart = match.index
-    const nextMatch = text.substring(sectionStart + 10).search(/\n\d+\.\s*\*?\*?[A-Z]{2,}|###|TRADE SIGNAL:|---/)
-    const sectionEnd = nextMatch > 0 ? sectionStart + 10 + nextMatch : sectionStart + 2000
+    const nextSection = text.substring(sectionStart + match[0].length).search(/\n(?:###\s*\[?[A-Z]{2,5}|TRADE SIGNAL|\*\*[A-Z]{2,5}\*\*|---\s*\n|## )/i)
+    const sectionEnd = nextSection > 0 ? sectionStart + match[0].length + nextSection : sectionStart + 4000
     const section = text.substring(sectionStart, Math.min(sectionEnd, text.length))
 
     const signal = parseSignalSection(section, ticker, name)
@@ -1151,46 +1113,79 @@ function extractSignals(text) {
     }
   }
 
-  // Pattern 5: Table format
-  const tableMatches = text.matchAll(/\|\s*([A-Z0-9\.]{2,10})\s*\|([^|]*)\|/g)
-  for (const match of tableMatches) {
-    const ticker = match[1].replace(/[.\[\]]/g, '')
-    if (invalidTickers.includes(ticker)) continue
-    if (['Ticker', 'Stock', 'Symbol', 'Action'].includes(ticker)) continue
-    if (signals.find(s => s.ticker === ticker)) continue
+  // Secondary pattern: Look for summary table entries with real tickers
+  // Only if we haven't found signals yet
+  if (signals.length === 0) {
+    const tablePattern = /\|\s*([A-Z]{2,5}(?:\.L)?)\s*\|[^|]+\|[^|]*(?:LONG|SHORT|TAKE|WATCH|PASS)[^|]*\|/gi
+    for (const match of text.matchAll(tablePattern)) {
+      const ticker = match[1].replace(/[.\[\]L]/g, '').toUpperCase()
+      if (!isValidTicker(ticker)) continue
+      if (signals.find(s => s.ticker === ticker)) continue
 
-    // Try to find the full row
-    const rowStart = text.lastIndexOf('|', match.index)
-    const rowEnd = text.indexOf('\n', match.index)
-    const row = text.substring(rowStart, rowEnd)
+      // Extract row data
+      const rowStart = text.lastIndexOf('\n', match.index) + 1
+      const rowEnd = text.indexOf('\n', match.index + match[0].length)
+      const row = text.substring(rowStart, rowEnd > 0 ? rowEnd : match.index + match[0].length + 100)
 
-    // Extract what we can from the row
-    const cells = row.split('|').map(c => c.trim()).filter(c => c)
+      const cells = row.split('|').map(c => c.trim()).filter(c => c)
 
-    signals.push({
-      ticker,
-      name: cells[1] || ticker,
-      direction: row.match(/\b(LONG|SHORT)\b/i)?.[1]?.toUpperCase() || null,
-      verdict: row.match(/\b(TAKE TRADE|WATCHLIST|NO TRADE)\b/i)?.[1]?.toUpperCase() || null,
-      rawSection: row
-    })
+      // Extract what we can
+      const verdict = row.match(/\b(TAKE TRADE|WATCHLIST|NO TRADE|PASS)\b/i)?.[1]?.toUpperCase()
+      const direction = row.match(/\b(LONG|SHORT)\b/i)?.[1]?.toUpperCase()
+      const grade = row.match(/\b([ABC]\+?)\b/)?.[1]?.toUpperCase()
+      const entryMatch = row.match(/[\$£]?([\d,.]+)\s*[-–]\s*[\$£]?([\d,.]+)/)
+
+      signals.push({
+        ticker,
+        name: cells[1] || ticker,
+        grade,
+        verdict,
+        direction,
+        entry: entryMatch ? `${entryMatch[1]} - ${entryMatch[2]}` : null,
+        rawSection: row
+      })
+    }
   }
 
-  return signals.filter(s => s.ticker && s.ticker.length >= 2 && s.ticker.length <= 6)
+  return signals
 }
 
 function parseSignalSection(section, ticker, name) {
-  // Extract grade - multiple patterns
-  const gradeMatch = section.match(/(?:Signal\s*)?Grade[:\s]*\*?\*?([A-C]\+?)\*?\*?/i) ||
-                     section.match(/\*\*([A-C]\+?)\*\*\s*(?:Grade|Signal)/i) ||
-                     section.match(/Grade[:\s|]+([A-C]\+?)/i)
-  const grade = gradeMatch ? gradeMatch[1].toUpperCase() : null
+  // Extract grade - look for letter grades A+, A, B+, B, C in various formats
+  const gradePatterns = [
+    /Signal\s*(?:Quality\s*)?(?:Score\s*(?:and\s*)?)?Grade[:\s]*\*?\*?([ABC]\+?)\*?\*?/i,
+    /Grade[:\s|]*\*?\*?([ABC]\+?)\*?\*?/i,
+    /\*\*([ABC]\+?)\*\*\s*(?:Grade|Signal|Setup)/i,
+    /Quality[:\s]*\*?\*?([ABC]\+?)\*?\*?/i,
+    /Score[:\s]*\*?\*?([ABC]\+?)\*?\*?/i,
+    /\[([ABC]\+?)\]\s*(?:Grade|Signal)?/i,
+    /\(([ABC]\+?)\s*(?:Grade|Signal|Setup)\)/i
+  ]
+  let grade = null
+  for (const pattern of gradePatterns) {
+    const match = section.match(pattern)
+    if (match) {
+      grade = match[1].toUpperCase()
+      break
+    }
+  }
 
   // Extract verdict - multiple patterns
-  const verdictMatch = section.match(/(?:FINAL\s*)?Verdict[:\s]*\*?\*?(TAKE TRADE|WATCHLIST|NO TRADE|PASS)/i) ||
-                       section.match(/\*\*(TAKE TRADE|WATCHLIST|NO TRADE|PASS)\*\*/i) ||
-                       section.match(/Decision[:\s]*(TAKE TRADE|WATCHLIST|NO TRADE|PASS)/i)
-  const verdict = verdictMatch ? verdictMatch[1].toUpperCase() : null
+  const verdictPatterns = [
+    /(?:FINAL\s*)?Verdict[:\s]*\*?\*?(TAKE TRADE|WATCHLIST|NO TRADE|PASS)\*?\*?/i,
+    /\*\*(TAKE TRADE|WATCHLIST|NO TRADE|PASS)\*\*/i,
+    /Decision[:\s]*(TAKE TRADE|WATCHLIST|NO TRADE|PASS)/i,
+    /Recommendation[:\s]*(TAKE TRADE|WATCHLIST|NO TRADE|PASS)/i,
+    /Action[:\s]*(TAKE TRADE|WATCHLIST|NO TRADE|PASS)/i
+  ]
+  let verdict = null
+  for (const pattern of verdictPatterns) {
+    const match = section.match(pattern)
+    if (match) {
+      verdict = match[1].toUpperCase()
+      break
+    }
+  }
 
   // Extract pillar count - multiple patterns
   const pillarMatch = section.match(/(?:Pillar\s*)?Count[:\s]*\*?\*?(\d)\s*\/\s*6/i) ||
