@@ -210,7 +210,7 @@ export default function SwingCommitteeApp() {
 
   // Add suggested tickers to watchlist
   const addSuggestionsToWatchlist = (tickers, label) => {
-    const tickerList = tickers.join(', ');
+    const tickerList = tickers.join('\n');
     const comment = `# ${label}`;
     const newEntry = `${comment}\n${tickerList}`;
 
