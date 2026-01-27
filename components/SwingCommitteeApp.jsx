@@ -7,7 +7,7 @@ import {
   Newspaper, ChevronDown, Activity, Clock, DollarSign, ShieldAlert,
   ArrowUpRight, ArrowDownRight, Crosshair, LineChart, BarChart3,
   AlertTriangle, Eye, Scale, Flame, Gauge, Calendar, BookOpen, Lightbulb,
-  XCircle
+  XCircle, RefreshCw
 } from 'lucide-react';
 
 export default function SwingCommitteeApp() {
@@ -20,6 +20,9 @@ export default function SwingCommitteeApp() {
   const [showUSSources, setShowUSSources] = useState(false);
   const [expandedSignal, setExpandedSignal] = useState(null);
   const [activeReportTab, setActiveReportTab] = useState('summary');
+  const [watchlistPrices, setWatchlistPrices] = useState({});
+  const [isFetchingPrices, setIsFetchingPrices] = useState(false);
+  const [priceError, setPriceError] = useState(null);
 
   const [formData, setFormData] = useState({
     // Account
@@ -127,6 +130,58 @@ export default function SwingCommitteeApp() {
 
   const [currentAnalysisStep, setCurrentAnalysisStep] = useState(0);
 
+  // Extract tickers from watchlist text
+  const extractTickers = (text) => {
+    if (!text) return [];
+    const lines = text.split('\n').filter(line => line.trim());
+    return lines.map(line => {
+      const parts = line.split(',');
+      return parts[0]?.trim().toUpperCase();
+    }).filter(ticker => ticker && ticker.length >= 1 && ticker.length <= 6);
+  };
+
+  // Fetch live prices from Yahoo Finance
+  const fetchPrices = async () => {
+    const tickers = extractTickers(formData.watchlist);
+    if (tickers.length === 0) {
+      setPriceError('No valid tickers found');
+      return;
+    }
+
+    setIsFetchingPrices(true);
+    setPriceError(null);
+
+    try {
+      const response = await fetch('/api/prices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tickers })
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch prices');
+
+      const data = await response.json();
+      const priceMap = {};
+      data.prices.forEach(p => {
+        if (!p.error) {
+          priceMap[p.ticker] = p;
+        }
+      });
+      setWatchlistPrices(priceMap);
+    } catch (error) {
+      setPriceError(error.message);
+    } finally {
+      setIsFetchingPrices(false);
+    }
+  };
+
+  // Format price for display
+  const formatPrice = (price, currency) => {
+    if (currency === 'GBp') return `${price.toFixed(0)}p`; // UK pence
+    if (currency === 'GBP') return `£${price.toFixed(2)}`;
+    return `$${price.toFixed(2)}`;
+  };
+
   const runAnalysis = async () => {
     setIsAnalyzing(true);
     setCurrentAnalysisStep(0);
@@ -149,7 +204,8 @@ export default function SwingCommitteeApp() {
           marketPulse: {
             uk: { score: marketPulseData.uk.score, label: marketPulseData.uk.label, regime: marketPulseData.uk.regime },
             us: { score: marketPulseData.us.score, label: marketPulseData.us.label, regime: marketPulseData.us.regime }
-          }
+          },
+          livePrices: watchlistPrices // Pass live prices to the analysis
         })
       });
 
@@ -571,18 +627,81 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
               <label className="block text-sm font-medium text-gray-700 mb-2">Watchlist Tickers</label>
               <textarea
                 value={formData.watchlist}
-                onChange={(e) => setFormData({ ...formData, watchlist: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, watchlist: e.target.value });
+                  setWatchlistPrices({}); // Clear prices when watchlist changes
+                }}
                 placeholder="Example:
-NVDA, $189, VCP forming, earnings Feb 26
-MSFT, $442, Cup and handle
-AAPL, $222, Pulling back to 50-day
-TSLA, $404, Tight range breakout watch
+NVDA, VCP forming, earnings Feb 26
+MSFT, Cup and handle
+AAPL, Pulling back to 50-day
+LLOY.L, UK bank breakout
 
-Format: Ticker, Current Price, Notes"
+Format: Ticker, Notes (we'll fetch live prices)"
                 rows={6}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-sm"
               />
             </div>
+
+            {/* Fetch Prices Button */}
+            <button
+              onClick={fetchPrices}
+              disabled={isFetchingPrices || !formData.watchlist.trim()}
+              className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
+                isFetchingPrices || !formData.watchlist.trim()
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-green-600 text-white hover:bg-green-700'
+              }`}
+            >
+              {isFetchingPrices ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Fetching live prices...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-5 h-5" />
+                  Fetch Live Prices from Yahoo Finance
+                </>
+              )}
+            </button>
+
+            {priceError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+                {priceError}
+              </div>
+            )}
+
+            {/* Live Prices Display */}
+            {Object.keys(watchlistPrices).length > 0 && (
+              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+                  <h3 className="font-medium text-gray-900 flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-green-600" />
+                    Live Prices
+                    <span className="text-xs text-gray-500 font-normal">via Yahoo Finance</span>
+                  </h3>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {Object.values(watchlistPrices).map((stock) => (
+                    <div key={stock.ticker} className="px-4 py-3 flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-gray-900">{stock.ticker}</p>
+                        <p className="text-xs text-gray-500">{stock.name}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-gray-900">
+                          {formatPrice(stock.price, stock.currency)}
+                        </p>
+                        <p className={`text-sm ${parseFloat(stock.change) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {parseFloat(stock.change) >= 0 ? '+' : ''}{stock.change} ({stock.changePercent})
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <h3 className="font-medium text-blue-900 mb-2">What We'll Check</h3>
@@ -596,11 +715,11 @@ Format: Ticker, Current Price, Notes"
               </ul>
             </div>
 
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <h3 className="font-medium text-amber-900 mb-2">Important: Price Data</h3>
-              <p className="text-sm text-amber-800">
-                <strong>Include current prices in your notes!</strong> Claude doesn't have real-time market data.
-                For accurate analysis, add current prices like: <code className="bg-amber-100 px-1 rounded">NVDA, $189, VCP forming</code>
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <h3 className="font-medium text-green-900 mb-2">Supported Tickers</h3>
+              <p className="text-sm text-green-800">
+                <strong>US stocks:</strong> NVDA, AAPL, MSFT, etc.<br />
+                <strong>UK stocks:</strong> Add .L suffix (e.g., LLOY.L, BARC.L, BP.L)
               </p>
             </div>
           </div>

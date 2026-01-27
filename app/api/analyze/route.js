@@ -6,10 +6,10 @@ const client = new Anthropic({
 
 export async function POST(request) {
   try {
-    const { formData, marketPulse } = await request.json()
+    const { formData, marketPulse, livePrices } = await request.json()
 
     // Build the full Swing Committee prompt
-    const prompt = buildFullPrompt(formData, marketPulse)
+    const prompt = buildFullPrompt(formData, marketPulse, livePrices)
 
     // Call Claude API with extended token limit for comprehensive analysis
     const message = await client.messages.create({
@@ -37,9 +37,27 @@ export async function POST(request) {
   }
 }
 
-function buildFullPrompt(formData, marketPulse) {
+function buildFullPrompt(formData, marketPulse, livePrices = {}) {
   const hasWatchlist = formData.watchlist && formData.watchlist.trim().length > 0
   const hasPositions = formData.openPositions && formData.openPositions.trim().length > 0
+  const hasLivePrices = livePrices && Object.keys(livePrices).length > 0
+
+  // Build live prices section if available
+  let livePricesSection = ''
+  if (hasLivePrices) {
+    livePricesSection = `
+## LIVE MARKET PRICES (fetched from Yahoo Finance)
+
+**IMPORTANT: Use these LIVE prices for all analysis. These are current as of this session.**
+
+| Ticker | Current Price | Change | Day Range | Currency |
+|--------|---------------|--------|-----------|----------|
+${Object.values(livePrices).map(p =>
+  `| ${p.ticker} | ${p.price?.toFixed(2)} | ${p.change} (${p.changePercent}) | ${p.low?.toFixed(2)} - ${p.high?.toFixed(2)} | ${p.currency} |`
+).join('\n')}
+
+`
+  }
 
   return `# TheMoneyProgram — Swing Committee Prompt
 ## UK/US Swing Trading Mode (v1)
@@ -871,6 +889,7 @@ ${hasWatchlist ? `# WATCHLIST TO ANALYZE
 
 ${formData.watchlist}
 
+${livePricesSection}
 For each watchlist ticker, run the FULL SWING SIGNAL PROTOCOL as defined in Section 5 above:
 1. Company Snapshot (sector, market cap, avg volume)
 2. Setup Identification (direction, setup type, timeframe, confidence)
