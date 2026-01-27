@@ -1212,15 +1212,67 @@ function parseSignalSection(section, ticker, name) {
   const target = targetMatch ? targetMatch[1].replace(/,/g, '') : null
 
   // Extract setup type
-  const setupMatch = section.match(/Setup(?:\s*Type)?[:\s]*([^\n|]+)/i) ||
-                     section.match(/Pattern[:\s]*([^\n|]+)/i)
-  const setupType = setupMatch ? setupMatch[1].trim().replace(/\*+/g, '').substring(0, 50) : null
+  const setupPatterns = [
+    /Setup(?:\s*Type)?[:\s|]*\*?\*?([^|\n*]+)\*?\*?/i,
+    /Pattern[:\s|]*\*?\*?([^|\n*]+)\*?\*?/i,
+    /Setup\s*(?:Identification)?[:\s|]*\*?\*?([^|\n*]+)\*?\*?/i,
+    /Trade\s*Type[:\s|]*\*?\*?([^|\n*]+)\*?\*?/i,
+    /\*\*Setup\*\*[:\s]*([^\n]+)/i
+  ]
+  let setupType = null
+  for (const pattern of setupPatterns) {
+    const match = section.match(pattern)
+    if (match) {
+      let setup = match[1].trim().replace(/\*+/g, '').substring(0, 50)
+      // Skip unhelpful values
+      if (setup && !setup.match(/^(IDENTIFICATION|LONG|SHORT|N\/A|None)$/i) && setup.length > 2) {
+        setupType = setup
+        break
+      }
+    }
+  }
 
-  // Extract direction
-  const directionMatch = section.match(/Direction[:\s]*(LONG|SHORT)/i) ||
-                         section.match(/Position[:\s]*(LONG|SHORT)/i) ||
-                         section.match(/\b(LONG|SHORT)\s*(?:position|trade|setup)/i)
-  const direction = directionMatch ? directionMatch[1].toUpperCase() : null
+  // Extract direction - expanded patterns to catch more formats
+  const directionPatterns = [
+    /Direction[:\s|]*\*?\*?(LONG|SHORT)\*?\*?/i,
+    /Position[:\s|]*\*?\*?(LONG|SHORT)\*?\*?/i,
+    /\*\*Direction\*\*[:\s|]*(LONG|SHORT)/i,
+    /\*\*(LONG|SHORT)\*\*\s*(?:position|trade|setup|direction)/i,
+    /\b(LONG|SHORT)\s*(?:position|trade|setup|bias|signal)/i,
+    /(?:Setup|Signal|Trade)\s*(?:Type)?[:\s]*\*?\*?(LONG|SHORT)/i,
+    /(?:Bias|Outlook)[:\s]*\*?\*?(LONG|SHORT|BULLISH|BEARISH)\*?\*?/i,
+    /\|\s*Direction\s*\|\s*(LONG|SHORT)\s*\|/i,
+    /\|\s*(LONG|SHORT)\s*\|/i,
+    /^[*-]\s*\*?\*?Direction\*?\*?[:\s]*(LONG|SHORT)/im,
+    /(?:go|going|recommend|suggesting)\s+(LONG|SHORT)/i,
+    /\b(LONG|SHORT)\b.*(?:entry|position|trade)/i
+  ]
+
+  let direction = null
+  for (const pattern of directionPatterns) {
+    const match = section.match(pattern)
+    if (match) {
+      let dir = match[1].toUpperCase()
+      // Convert BULLISH/BEARISH to LONG/SHORT
+      if (dir === 'BULLISH') dir = 'LONG'
+      if (dir === 'BEARISH') dir = 'SHORT'
+      direction = dir
+      break
+    }
+  }
+
+  // Fallback: if we still don't have direction, infer from context
+  if (!direction) {
+    const upperSection = section.toUpperCase()
+    // Check for strong indicators
+    if (upperSection.includes('BUY SIGNAL') || upperSection.includes('BULLISH SETUP') ||
+        upperSection.includes('LONG ENTRY') || upperSection.includes('BUY ZONE')) {
+      direction = 'LONG'
+    } else if (upperSection.includes('SELL SIGNAL') || upperSection.includes('BEARISH SETUP') ||
+               upperSection.includes('SHORT ENTRY') || upperSection.includes('SELL ZONE')) {
+      direction = 'SHORT'
+    }
+  }
 
   // Extract risk/reward
   const rrMatch = section.match(/R(?:isk)?[\/:]?R(?:eward)?[:\s]*([\d.]+)[:\s]*([\d.]+)/i) ||
