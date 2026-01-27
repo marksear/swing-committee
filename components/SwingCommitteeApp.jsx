@@ -573,12 +573,12 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                 value={formData.watchlist}
                 onChange={(e) => setFormData({ ...formData, watchlist: e.target.value })}
                 placeholder="Example:
-NVDA, VCP forming, earnings Feb 26
-MSFT, Cup and handle
-AAPL, Pulling back to 50-day
-TSLA, Tight range breakout watch
+NVDA, $189, VCP forming, earnings Feb 26
+MSFT, $442, Cup and handle
+AAPL, $222, Pulling back to 50-day
+TSLA, $404, Tight range breakout watch
 
-Format: Ticker, Notes (optional)"
+Format: Ticker, Current Price, Notes"
                 rows={6}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-sm"
               />
@@ -594,6 +594,14 @@ Format: Ticker, Notes (optional)"
                 <li>• Raschke momentum/mean reversion</li>
                 <li>• Weinstein stage analysis</li>
               </ul>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <h3 className="font-medium text-amber-900 mb-2">Important: Price Data</h3>
+              <p className="text-sm text-amber-800">
+                <strong>Include current prices in your notes!</strong> Claude doesn't have real-time market data.
+                For accurate analysis, add current prices like: <code className="bg-amber-100 px-1 rounded">NVDA, $189, VCP forming</code>
+              </p>
             </div>
           </div>
         );
@@ -657,24 +665,32 @@ Format: Ticker, Notes (optional)"
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Your Confidence Level: {formData.marketSentiment}/10
               </label>
-              <input
-                type="range"
-                min="1"
-                max="10"
-                value={formData.marketSentiment}
-                onChange={(e) => setFormData({ ...formData, marketSentiment: parseInt(e.target.value) })}
-                className="w-full h-2 bg-gradient-to-r from-red-400 via-amber-400 to-green-500 rounded-full appearance-none cursor-pointer"
-              />
-              <div className="flex justify-between text-xs text-gray-400 mt-1">
-                <span>Very Cautious</span>
-                <span>Neutral</span>
-                <span>Very Confident</span>
+              <div className="relative h-8 flex items-center">
+                {/* Gradient track background */}
+                <div className="absolute inset-x-0 h-3 rounded-full bg-gradient-to-r from-red-500 via-amber-400 to-green-500" />
+                {/* Slider input */}
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  value={formData.marketSentiment}
+                  onChange={(e) => setFormData({ ...formData, marketSentiment: parseInt(e.target.value) })}
+                  className="relative w-full h-3 bg-transparent rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-gray-800 [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-gray-800 [&::-moz-range-thumb]:shadow-lg [&::-moz-range-thumb]:cursor-pointer"
+                />
+              </div>
+              <div className="flex justify-between text-xs mt-1">
+                <span className="text-red-600 font-medium">Defensive</span>
+                <span className="text-amber-600 font-medium">Balanced</span>
+                <span className="text-green-600 font-medium">Aggressive</span>
               </div>
               <div className={`mt-2 p-2 rounded-lg text-sm ${getSentimentLabel(formData.marketSentiment).bg}`}>
                 <span className={getSentimentLabel(formData.marketSentiment).color}>
                   {getSentimentLabel(formData.marketSentiment).label}
                 </span>
-                <span className="text-gray-600"> — This affects committee stance (Aggressive/Balanced/Defensive)</span>
+                <span className="text-gray-600"> — Committee stance: {
+                  formData.marketSentiment <= 3 ? 'Defensive' :
+                  formData.marketSentiment <= 6 ? 'Balanced' : 'Aggressive'
+                }</span>
               </div>
             </div>
 
