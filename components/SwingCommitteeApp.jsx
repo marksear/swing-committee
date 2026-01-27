@@ -279,6 +279,20 @@ export default function SwingCommitteeApp() {
     return 'bg-gray-400';
   };
 
+  const getDirectionColor = (direction) => {
+    if (!direction) return 'bg-gray-400';
+    if (direction.toUpperCase() === 'LONG') return 'bg-green-600';
+    if (direction.toUpperCase() === 'SHORT') return 'bg-red-600';
+    return 'bg-gray-400';
+  };
+
+  const getDirectionLabel = (direction) => {
+    if (!direction) return '?';
+    if (direction.toUpperCase() === 'LONG') return 'L';
+    if (direction.toUpperCase() === 'SHORT') return 'S';
+    return '?';
+  };
+
   const getVerdictColor = (verdict) => {
     if (!verdict) return 'bg-gray-100 text-gray-600';
     if (verdict === 'TAKE TRADE') return 'bg-green-100 text-green-700';
@@ -1317,12 +1331,15 @@ Format: Ticker, Notes (we'll fetch live prices)"
                             className="w-full p-4 flex items-center justify-between hover:bg-gray-50"
                           >
                             <div className="flex items-center gap-4">
-                              <div className={`w-12 h-12 ${getGradeColor(signal.grade)} rounded-xl flex items-center justify-center text-white font-bold`}>
-                                {signal.grade || '?'}
+                              <div className={`w-12 h-12 ${getDirectionColor(signal.direction)} rounded-xl flex items-center justify-center text-white font-bold text-xl`}>
+                                {getDirectionLabel(signal.direction)}
                               </div>
                               <div className="text-left">
                                 <p className="font-bold text-gray-900">{signal.ticker}</p>
-                                <p className="text-sm text-gray-500">{signal.setupType || signal.name || 'Swing Setup'} • {signal.direction || 'Long'}</p>
+                                <p className="text-sm text-gray-500">
+                                  {signal.setupType || signal.name || 'Swing Setup'}
+                                  {signal.grade && <span className="ml-2 font-medium">• Grade {signal.grade}</span>}
+                                </p>
                               </div>
                               {signal.pillarCount && (
                                 <span className={`px-2 py-1 text-xs font-medium rounded ${

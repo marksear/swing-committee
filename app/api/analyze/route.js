@@ -1037,15 +1037,66 @@ function extractCommitteeStance(text) {
 }
 
 function extractSummary(responseText) {
-  // Try to get the chair's action summary
-  const chairMatch = responseText.match(/This session we will:[\s\S]*?(?=\*\*Total|\*\*Watchlist|---|\n\n\*\*)/i)
+  // Try to get the chair's action summary - stop before tables, horizontal rules, or new headers
+  const chairMatch = responseText.match(/This session we will:[\s\S]*?(?=\n\||\n---|\n\n\*\*|\n##|\n###)/i)
   if (chairMatch) {
-    return chairMatch[0].trim()
+    // Clean up any trailing markdown artifacts
+    let summary = chairMatch[0].trim()
+    // Remove incomplete table starts
+    summary = summary.replace(/\n\|.*$/s, '')
+    // Remove trailing asterisks or colons
+    summary = summary.replace(/[:\*]+\s*$/, '')
+    if (summary.length > 20) {
+      return summary
+    }
   }
 
-  // Fallback to first substantial paragraph
-  const paragraphs = responseText.split('\n\n').filter(p => p.length > 100)
-  return paragraphs[0]?.substring(0, 500) || 'Analysis complete. Review full report below.'
+  // Try alternative pattern: look for executive summary section
+  const execSummaryMatch = responseText.match(/(?:Executive Summary|EXECUTIVE SUMMARY)[:\s]*\n([\s\S]*?)(?=\n##|\n###|\n---|\n\|)/i)
+  if (execSummaryMatch && execSummaryMatch[1]) {
+    const summary = execSummaryMatch[1].trim()
+    if (summary.length > 20) {
+      return summary.substring(0, 800)
+    }
+  }
+
+  // Try to find chair's decision summary
+  const chairDecisionMatch = responseText.match(/Chair'?s? Decision[:\s]*\n([\s\S]*?)(?=\n##|\n###|\n---|\n\|)/i)
+  if (chairDecisionMatch && chairDecisionMatch[1]) {
+    const summary = chairDecisionMatch[1].trim()
+    if (summary.length > 20) {
+      return summary.substring(0, 800)
+    }
+  }
+
+  // Fallback: extract the first non-table, non-header paragraph
+  const lines = responseText.split('\n')
+  const paragraphs = []
+  let currentPara = []
+
+  for (const line of lines) {
+    // Skip headers, tables, horizontal rules
+    if (line.startsWith('#') || line.startsWith('|') || line.startsWith('---') || line.trim() === '') {
+      if (currentPara.length > 0) {
+        paragraphs.push(currentPara.join(' '))
+        currentPara = []
+      }
+      continue
+    }
+    currentPara.push(line.trim())
+  }
+  if (currentPara.length > 0) {
+    paragraphs.push(currentPara.join(' '))
+  }
+
+  // Find a substantial paragraph
+  for (const para of paragraphs) {
+    if (para.length > 50 && !para.includes('|')) {
+      return para.substring(0, 500)
+    }
+  }
+
+  return 'Analysis complete. Review the trade signals and full report below for detailed recommendations.'
 }
 
 function extractSection(text, startMarker, endMarker) {
