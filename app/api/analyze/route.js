@@ -45,16 +45,38 @@ function buildFullPrompt(formData, marketPulse, livePrices = {}) {
   // Build live prices section if available
   let livePricesSection = ''
   if (hasLivePrices) {
-    livePricesSection = `
-## LIVE MARKET PRICES (fetched from Yahoo Finance)
+    // Format prices with proper currency notation
+    const formatLivePrice = (p) => {
+      const currency = p.currency || 'USD'
+      const priceStr = currency === 'GBp'
+        ? `${p.price?.toFixed(0)}p`
+        : currency === 'GBP'
+          ? `£${p.price?.toFixed(2)}`
+          : `$${p.price?.toFixed(2)}`
+      const lowStr = currency === 'GBp'
+        ? `${p.low?.toFixed(0)}p`
+        : currency === 'GBP'
+          ? `£${p.low?.toFixed(2)}`
+          : `$${p.low?.toFixed(2)}`
+      const highStr = currency === 'GBp'
+        ? `${p.high?.toFixed(0)}p`
+        : currency === 'GBP'
+          ? `£${p.high?.toFixed(2)}`
+          : `$${p.high?.toFixed(2)}`
+      return `| ${p.ticker} | ${priceStr} | ${p.change} (${p.changePercent}) | ${lowStr} - ${highStr} | ${currency} |`
+    }
 
-**IMPORTANT: Use these LIVE prices for all analysis. These are current as of this session.**
+    livePricesSection = `
+## LIVE MARKET PRICES (fetched from Yahoo Finance just now)
+
+**CRITICAL: These are the CURRENT market prices. Base ALL entry zones on these prices.**
+- UK stocks (.L suffix) are priced in PENCE (p). Entry zones must be within 1-3% of current price.
+- US stocks are priced in USD ($). Entry zones must be within 1-3% of current price.
+- Do NOT recommend entries that are more than 5% away from current price - that trade has been missed.
 
 | Ticker | Current Price | Change | Day Range | Currency |
 |--------|---------------|--------|-----------|----------|
-${Object.values(livePrices).map(p =>
-  `| ${p.ticker} | ${p.price?.toFixed(2)} | ${p.change} (${p.changePercent}) | ${p.low?.toFixed(2)} - ${p.high?.toFixed(2)} | ${p.currency} |`
-).join('\n')}
+${Object.values(livePrices).map(formatLivePrice).join('\n')}
 
 `
   }
