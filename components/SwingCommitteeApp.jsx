@@ -197,7 +197,8 @@ export default function SwingCommitteeApp() {
       const data = await response.json();
       const priceMap = {};
       data.prices.forEach(p => {
-        if (!p.error) {
+        // Only include stocks with valid prices (no errors, valid price number)
+        if (!p.error && p.price !== undefined && p.price !== null && !isNaN(p.price)) {
           priceMap[p.ticker] = p;
         }
       });
@@ -1093,7 +1094,11 @@ Format: Ticker, Notes (we'll fetch live prices)"
                 </div>
                 <div className="divide-y divide-gray-100">
                   {Object.values(watchlistPrices).map((stock) => {
+                    // Skip invalid stocks - no ticker, no price, or has error
                     if (!stock || !stock.ticker) return null;
+                    if (stock.error) return null;
+                    if (stock.price === undefined || stock.price === null || isNaN(stock.price)) return null;
+
                     const change = parseFloat(stock.change) || 0;
                     return (
                       <div key={stock.ticker} className="px-4 py-3 flex items-center justify-between">
