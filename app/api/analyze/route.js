@@ -69,14 +69,31 @@ function buildFullPrompt(formData, marketPulse, livePrices = {}) {
     livePricesSection = `
 ## LIVE MARKET PRICES (fetched from Yahoo Finance just now)
 
-**CRITICAL: These are the CURRENT market prices. Base ALL entry zones on these prices.**
-- UK stocks (.L suffix) are priced in PENCE (p). Entry zones must be within 1-3% of current price.
-- US stocks are priced in USD ($). Entry zones must be within 1-3% of current price.
-- Do NOT recommend entries that are more than 5% away from current price - that trade has been missed.
+# ⚠️ MANDATORY PRICE VALIDATION ⚠️
+
+**YOU MUST USE THESE EXACT PRICES. DO NOT HALLUCINATE OR ESTIMATE PRICES.**
+
+These prices are from Yahoo Finance and are the ONLY source of truth:
 
 | Ticker | Current Price | Change | Day Range | Currency |
 |--------|---------------|--------|-----------|----------|
 ${Object.values(livePrices).map(formatLivePrice).join('\n')}
+
+**STRICT RULES FOR ENTRY ZONES:**
+1. Entry zones MUST be within 1-3% of the CURRENT PRICE shown above
+2. If current price is $100, entry zone must be between $97-$103
+3. If current price is 1000p, entry zone must be between 970p-1030p
+4. DO NOT suggest entry zones more than 5% away - that trade has been MISSED
+5. For EACH ticker, state "Current price from Yahoo: $X.XX" before giving entry zone
+6. If a stock has already moved significantly, recommend WATCHLIST instead of forcing a bad entry
+
+**EXAMPLE - CORRECT:**
+- Current Yahoo price: $150.00
+- Entry Zone: $147.00 - $152.00 (within 2% of current)
+
+**EXAMPLE - WRONG (DO NOT DO THIS):**
+- Current Yahoo price: $150.00
+- Entry Zone: $120.00 - $125.00 (20% away - THIS IS WRONG!)
 
 `
   }
@@ -981,6 +998,9 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
 **Rationale:** [Why this stance given current conditions]
 
 **ACTION SUMMARY — "This session we will:"**
+[Write 2-3 sentences summarizing the specific trades and watchlist items. Include ticker symbols and key actions.]
+
+**TRADES TABLE (Entry prices MUST be within 3% of Yahoo live price):**
 
 | Action | Ticker | Direction | Entry | Stop | Size (Shares) | Size (Spread Bet) | Risk |
 |--------|--------|-----------|-------|------|---------------|-------------------|------|
@@ -1059,46 +1079,83 @@ function extractCommitteeStance(text) {
 }
 
 function extractSummary(responseText) {
-  // Find the position of "This session we will" and grab content after it
+  // Helper to clean up summary text
+  const cleanSummary = (text) => {
+    return text
+      .replace(/^#+\s*[-─━═]*\s*/gm, '') // Remove header markers and lines
+      .replace(/^[-─━═]+\s*/gm, '') // Remove horizontal lines
+      .replace(/^\*\*ACTION SUMMARY.*?\*\*\s*/i, '') // Remove ACTION SUMMARY header
+      .replace(/^["'"]\s*/gm, '') // Remove leading quotes
+      .replace(/["'"]\s*$/gm, '') // Remove trailing quotes
+      .replace(/^\s*\n/gm, '') // Remove empty lines at start
+      .trim()
+  }
+
+  // FIRST: Try to extract from Chair's Decision - look for Selected Committee and Rationale
+  const chairPattern = /\*\*Selected Committee:\*\*\s*([^\n]+)\s*\n\s*\*\*Rationale:\*\*\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)/i
+  const chairMatch = responseText.match(chairPattern)
+  if (chairMatch) {
+    const committee = chairMatch[1].trim()
+    const rationale = chairMatch[2].trim()
+
+    // Also look for ACTION SUMMARY content
+    const actionMatch = responseText.match(/ACTION SUMMARY[^"]*"This session we will:?"?\*?\*?\s*\n?([\s\S]*?)(?=\n\n\*\*(?:TRADES|Total|Watchlist)|$)/i)
+    let actionSummary = ''
+    if (actionMatch && actionMatch[1]) {
+      actionSummary = cleanSummary(actionMatch[1])
+      // Stop at table
+      actionSummary = actionSummary.split(/\n\|/)[0].trim()
+    }
+
+    let summary = `**Selected Committee:** ${committee}\n**Rationale:** ${rationale}`
+    if (actionSummary && actionSummary.length > 10) {
+      summary += `\n\n**This session we will:** ${actionSummary}`
+    }
+
+    if (summary.length > 50) {
+      return summary.substring(0, 1000)
+    }
+  }
+
+  // SECOND: Find "This session we will" content
   const sessionWillIndex = responseText.toLowerCase().indexOf('this session we will')
   if (sessionWillIndex !== -1) {
-    // Get text starting from "This session we will"
     const textFromSession = responseText.substring(sessionWillIndex)
 
-    // Find where the summary ends (next major section)
-    const endPatterns = [/\n\n##/, /\n\n###/, /\n---\n/, /\n\n\*\*PART/, /\n\n\|/, /\n\nPART [A-F]/]
+    // Find where the summary ends (next major section or table)
+    const endPatterns = [/\n\n##/, /\n\n###/, /\n---\n/, /\n\n\*\*TRADES/, /\n\n\*\*Total/, /\n\|.*\|.*\|/]
     let endIndex = textFromSession.length
     for (const pattern of endPatterns) {
       const match = textFromSession.match(pattern)
-      if (match && match.index < endIndex) {
+      if (match && match.index < endIndex && match.index > 20) {
         endIndex = match.index
       }
     }
 
-    let summary = textFromSession.substring(0, endIndex).trim()
-    // Clean up: remove "This session we will:" prefix variations and quotes
-    summary = summary.replace(/^This session we will:?\s*["']?\s*/i, '')
-    // Remove trailing incomplete tables or quotes
-    summary = summary.replace(/\n\|.*$/s, '').replace(/["']+$/, '').trim()
+    let summary = textFromSession.substring(0, Math.min(endIndex, 800)).trim()
+    summary = cleanSummary(summary)
+
+    // Remove the "This session we will:" prefix for cleaner output
+    summary = summary.replace(/^This session we will:?\s*/i, '')
 
     if (summary.length > 20) {
       return 'This session we will: ' + summary.substring(0, 800)
     }
   }
 
-  // Try alternative: capture bullet points after "This session we will"
-  const bulletMatch = responseText.match(/This session we will:?\s*["']?\s*\n((?:\s*[-•*1-9]\.*\s+[^\n]+\n?)+)/i)
-  if (bulletMatch && bulletMatch[1]) {
-    const summary = bulletMatch[1].trim()
-    if (summary.length > 20) {
-      return 'This session we will:\n' + summary.substring(0, 800)
+  // THIRD: Try to get Rationale alone
+  const rationaleMatch = responseText.match(/\*\*Rationale:\*\*\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)/i)
+  if (rationaleMatch && rationaleMatch[1]) {
+    const rationale = rationaleMatch[1].trim()
+    if (rationale.length > 30) {
+      return rationale.substring(0, 800)
     }
   }
 
-  // Try alternative pattern: look for executive summary section
+  // FOURTH: Try alternative pattern for executive summary section
   const execSummaryMatch = responseText.match(/(?:Executive Summary|EXECUTIVE SUMMARY)[:\s]*\n([\s\S]*?)(?=\n##|\n###|\n---|\n\|)/i)
   if (execSummaryMatch && execSummaryMatch[1]) {
-    const summary = execSummaryMatch[1].trim()
+    const summary = cleanSummary(execSummaryMatch[1])
     if (summary.length > 20) {
       return summary.substring(0, 800)
     }
