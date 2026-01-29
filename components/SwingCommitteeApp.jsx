@@ -1058,22 +1058,26 @@ Format: Ticker, Notes (we'll fetch live prices)"
                   </h3>
                 </div>
                 <div className="divide-y divide-gray-100">
-                  {Object.values(watchlistPrices).map((stock) => (
-                    <div key={stock.ticker} className="px-4 py-3 flex items-center justify-between">
-                      <div>
-                        <p className="font-bold text-gray-900">{stock.ticker}</p>
-                        <p className="text-xs text-gray-500">{stock.name}</p>
+                  {Object.values(watchlistPrices).map((stock) => {
+                    if (!stock || !stock.ticker) return null;
+                    const change = parseFloat(stock.change) || 0;
+                    return (
+                      <div key={stock.ticker} className="px-4 py-3 flex items-center justify-between">
+                        <div>
+                          <p className="font-bold text-gray-900">{stock.ticker}</p>
+                          <p className="text-xs text-gray-500">{stock.name || ''}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-gray-900">
+                            {formatPrice(stock.price, stock.currency)}
+                          </p>
+                          <p className={`text-sm ${change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {change >= 0 ? '+' : ''}{stock.change || '0'} ({stock.changePercent || '0%'})
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-bold text-gray-900">
-                          {formatPrice(stock.price, stock.currency)}
-                        </p>
-                        <p className={`text-sm ${parseFloat(stock.change) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {parseFloat(stock.change) >= 0 ? '+' : ''}{stock.change} ({stock.changePercent})
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
