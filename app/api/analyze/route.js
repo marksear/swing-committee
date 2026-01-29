@@ -1051,15 +1051,53 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
     {
       "ticker": "NVDA",
       "direction": "LONG",
-      "entry": "138.00-140.00",
-      "stop": "131.00",
-      "target": "155.00",
+      "entry": "$138.00-$140.00",
+      "stop": "$131.00",
+      "target": "$155.00",
       "shares": 20,
       "spreadBetSize": "£0.37/pt",
       "risk": "£100",
       "grade": "A",
       "pillarCount": 4,
-      "setupType": "VCP Breakout"
+      "setupType": "VCP Breakout",
+      "tradeAnalysis": {
+        "company": "NVIDIA Corporation",
+        "sector": "Semiconductors",
+        "marketCap": "$4.67T",
+        "avgVolume": "301M",
+        "currentPrice": "$138.50",
+        "stopPercent": "5.4%",
+        "target2": "$165.00",
+        "riskReward1": "2.4:1",
+        "riskReward2": "3.8:1",
+        "confidence": "High",
+        "timeframe": "Short-Term Swing",
+        "standardSizing": {
+          "accountRisk": "£100",
+          "dollarRiskPerShare": "$7.50",
+          "positionSize": "13 shares",
+          "positionValue": "£1,800",
+          "portfolioAllocation": "18%"
+        },
+        "spreadBetSizing": {
+          "entryPoints": "13850 points",
+          "stopPoints": "13100 points",
+          "stopDistance": "750 points",
+          "poundsPerPoint": "£0.13",
+          "notionalExposure": "£1,800",
+          "marginRequired": "£360"
+        },
+        "pillars": {
+          "livermore": { "pass": true, "note": "Strong pivotal point, line of least resistance up" },
+          "oneil": { "pass": true, "note": "Market leader, RS 95+, breaking from consolidation" },
+          "minervini": { "pass": true, "note": "Stage 2, VCP forming, above all key MAs" },
+          "darvas": { "pass": true, "note": "Clear box structure, buying at breakout" },
+          "raschke": { "pass": false, "note": "Mixed signals, not clearly trending" },
+          "weinstein": { "pass": true, "note": "Stage 2 on weekly, above 30-week MA" }
+        },
+        "catalyst": "Earnings momentum, AI demand",
+        "risks": ["Semiconductor cycle risk", "Valuation stretched", "China exposure"]
+      }
     }
   ],
   "watchlist": [
@@ -1074,7 +1112,7 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
 }
 \`\`\`
 
-Replace the example values with actual analysis. The JSON must be valid and parseable. Include ALL trades from the TRADES TABLE in the trades array.
+Replace the example values with actual analysis. The JSON must be valid and parseable. Include ALL trades from the TRADES TABLE in the trades array. The tradeAnalysis object must contain the FULL detailed analysis for each trade.
 
 ---
 
@@ -1126,6 +1164,9 @@ function convertJsonToSignals(jsonData) {
   // Convert trades to signals
   if (jsonData.trades && Array.isArray(jsonData.trades)) {
     for (const trade of jsonData.trades) {
+      // Build comprehensive rawSection from tradeAnalysis
+      let rawSection = buildTradeAnalysisText(trade)
+
       signals.push({
         ticker: trade.ticker?.replace('.L', ''),
         name: trade.ticker,
@@ -1137,8 +1178,8 @@ function convertJsonToSignals(jsonData) {
         grade: trade.grade,
         pillarCount: trade.pillarCount,
         setupType: trade.setupType || `${trade.direction?.toUpperCase() || 'BUY'} ${trade.direction?.toUpperCase() || 'LONG'}`,
-        riskReward: null,
-        rawSection: `Trade: ${trade.ticker} ${trade.direction} | Entry: ${trade.entry} | Stop: ${trade.stop} | Target: ${trade.target} | Grade: ${trade.grade} | Pillars: ${trade.pillarCount}/6 | Risk: ${trade.risk}`
+        riskReward: trade.tradeAnalysis?.riskReward1 || null,
+        rawSection
       })
     }
   }
@@ -1164,6 +1205,102 @@ function convertJsonToSignals(jsonData) {
   }
 
   return signals
+}
+
+// Build formatted trade analysis text from JSON data
+function buildTradeAnalysisText(trade) {
+  const a = trade.tradeAnalysis || {}
+  const p = a.pillars || {}
+  const std = a.standardSizing || {}
+  const sb = a.spreadBetSizing || {}
+
+  let text = `### TRADE SIGNAL: ${trade.ticker}\n\n`
+
+  // Company info
+  if (a.company) {
+    text += `COMPANY: ${a.company}\n`
+    text += `SECTOR: ${a.sector || 'N/A'}\n`
+    text += `MARKET CAP: ${a.marketCap || 'N/A'}\n`
+    text += `AVG VOLUME: ${a.avgVolume || 'N/A'}\n\n`
+  }
+
+  // Setup identification
+  text += `**SETUP IDENTIFICATION:**\n`
+  text += `- Direction: ${trade.direction || 'LONG'}\n`
+  text += `- Setup Type: ${trade.setupType || 'N/A'}\n`
+  text += `- Timeframe: ${a.timeframe || 'Short-Term Swing'}\n`
+  text += `- Confidence: ${a.confidence || 'Medium'}\n\n`
+
+  // Levels
+  text += `**LEVELS:**\n`
+  text += `- Current Price: ${a.currentPrice || 'N/A'}\n`
+  text += `- Entry Zone: ${trade.entry || 'N/A'}\n`
+  text += `- Stop Loss: ${trade.stop || 'N/A'} (${a.stopPercent || 'N/A'} risk)\n`
+  text += `- Target 1: ${trade.target || 'N/A'} (R:R ${a.riskReward1 || 'N/A'}) — take 50%\n`
+  if (a.target2) {
+    text += `- Target 2: ${a.target2} (R:R ${a.riskReward2 || 'N/A'}) — trail remainder\n`
+  }
+  text += `\n`
+
+  // Standard position sizing
+  if (std.accountRisk) {
+    text += `**POSITION SIZING — STANDARD:**\n`
+    text += `- Account Risk: ${std.accountRisk}\n`
+    text += `- Risk per Share: ${std.dollarRiskPerShare || 'N/A'}\n`
+    text += `- Position Size: ${std.positionSize || 'N/A'}\n`
+    text += `- Position Value: ${std.positionValue || 'N/A'}\n`
+    text += `- Portfolio Allocation: ${std.portfolioAllocation || 'N/A'}\n\n`
+  }
+
+  // Spread bet sizing
+  if (sb.entryPoints) {
+    text += `**POSITION SIZING — SPREAD BET:**\n`
+    text += `- Entry: ${sb.entryPoints}\n`
+    text += `- Stop: ${sb.stopPoints || 'N/A'}\n`
+    text += `- Stop Distance: ${sb.stopDistance || 'N/A'}\n`
+    text += `- £ per Point: ${sb.poundsPerPoint || 'N/A'}\n`
+    text += `- Notional Exposure: ${sb.notionalExposure || 'N/A'}\n`
+    text += `- Margin Required (~20%): ${sb.marginRequired || 'N/A'}\n\n`
+  }
+
+  // Six Pillars
+  text += `**SIX PILLARS ALIGNMENT:**\n`
+  const pillarNames = {
+    livermore: 'LIVERMORE — Pivotal Points',
+    oneil: "O'NEIL — CANSLIM / RS",
+    minervini: 'MINERVINI — Stage & VCP',
+    darvas: 'DARVAS — Box & Breakout',
+    raschke: 'RASCHKE — Momentum/Mean Reversion',
+    weinstein: 'WEINSTEIN — Weekly Stage'
+  }
+
+  for (const [key, label] of Object.entries(pillarNames)) {
+    const pillar = p[key]
+    if (pillar) {
+      const mark = pillar.pass ? '✓' : '✗'
+      text += `[${mark}] ${label}: ${pillar.note || 'N/A'}\n`
+    }
+  }
+  text += `\n**PILLAR COUNT:** ${trade.pillarCount || 0}/6 — ${(trade.pillarCount || 0) >= 3 ? 'PASS' : 'FAIL'}\n\n`
+
+  // Catalyst and risks
+  if (a.catalyst) {
+    text += `**CATALYST:** ${a.catalyst}\n\n`
+  }
+
+  if (a.risks && a.risks.length > 0) {
+    text += `**RISK FACTORS:**\n`
+    a.risks.forEach((risk, i) => {
+      text += `${i + 1}. ${risk}\n`
+    })
+    text += `\n`
+  }
+
+  // Grade and verdict
+  text += `**GRADE:** ${trade.grade || 'N/A'}\n\n`
+  text += `**VERDICT:** TAKE TRADE\n`
+
+  return text
 }
 
 function extractCommitteeStance(text) {
