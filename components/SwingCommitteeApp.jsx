@@ -1220,7 +1220,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                 <span className="absolute left-1/2 -translate-x-1/2 text-amber-600 font-medium">Balanced</span>
                 <span className="ml-auto text-green-600 font-medium">Aggressive</span>
               </div>
-              <div className={`mt-2 p-2 rounded-lg text-sm ${getSentimentLabel(formData.marketSentiment).bg}`}>
+              <div className={`mt-2 p-2 rounded-lg text-sm text-center ${getSentimentLabel(formData.marketSentiment).bg}`}>
                 <span className={getSentimentLabel(formData.marketSentiment).color}>
                   {getSentimentLabel(formData.marketSentiment).label}
                 </span>
@@ -1326,21 +1326,21 @@ Format: Ticker, Notes (we'll fetch live prices)"
                 </div>
 
                 <div className="grid grid-cols-3 gap-4 mt-6">
-                  <div className="bg-white/10 rounded-lg p-3">
-                    <p className="text-blue-200 text-xs">Committee Stance</p>
-                    <p className={`text-lg font-bold ${
+                  <div className="bg-white/10 rounded-lg p-3 flex flex-col items-center justify-center">
+                    <p className="text-blue-200 text-xs text-center">Committee Stance</p>
+                    <p className={`text-lg font-bold text-center ${
                       analysisResult.mode === 'Aggressive' ? 'text-green-400' :
                       analysisResult.mode === 'Defensive' ? 'text-amber-400' :
                       'text-blue-300'
                     }`}>{analysisResult.mode || 'Balanced'}</p>
                   </div>
-                  <div className="bg-white/10 rounded-lg p-3">
-                    <p className="text-blue-200 text-xs">Signals Found</p>
-                    <p className="text-lg font-bold">{analysisResult.signals?.length || 0}</p>
+                  <div className="bg-white/10 rounded-lg p-3 flex flex-col items-center justify-center">
+                    <p className="text-blue-200 text-xs text-center">Signals Found</p>
+                    <p className="text-lg font-bold text-center">{analysisResult.signals?.filter(s => !isNoTrade(s)).length || 0}</p>
                   </div>
-                  <div className="bg-white/10 rounded-lg p-3">
-                    <p className="text-blue-200 text-xs">Market Regime</p>
-                    <p className={`text-lg font-bold ${
+                  <div className="bg-white/10 rounded-lg p-3 flex flex-col items-center justify-center">
+                    <p className="text-blue-200 text-xs text-center">Market Regime</p>
+                    <p className={`text-lg font-bold text-center ${
                       marketPulseData?.us?.regime === 'Trending Up' ? 'text-green-400' :
                       marketPulseData?.us?.regime === 'Trending Down' ? 'text-red-400' :
                       marketPulseData?.us?.regime === 'Volatile' ? 'text-orange-400' :

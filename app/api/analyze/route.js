@@ -1117,9 +1117,20 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
       "potentialTarget": "$190.00",
       "pillarCount": 3,
       "grade": "B",
+      "company": "Alphabet Inc.",
+      "sector": "Technology",
+      "setupType": "Breakout Watch",
       "reasoning": "Consolidating below resistance. Need volume confirmation on breakout. 3/6 pillars currently aligned - would improve to 4/6 on breakout.",
       "catalyst": "Awaiting breakout above key resistance",
-      "risks": ["Could fail at resistance", "Market sentiment dependent"]
+      "risks": ["Could fail at resistance", "Market sentiment dependent"],
+      "pillars": {
+        "livermore": { "pass": true, "note": "Approaching pivotal point" },
+        "oneil": { "pass": true, "note": "Strong RS rating" },
+        "minervini": { "pass": false, "note": "Not yet in Stage 2" },
+        "darvas": { "pass": true, "note": "Box forming" },
+        "raschke": { "pass": false, "note": "Waiting for momentum" },
+        "weinstein": { "pass": false, "note": "Need weekly breakout" }
+      }
     }
   ],
   "summary": "Enter long positions in NVDA on VCP breakout pattern with 4 pillar alignment.",
@@ -1133,6 +1144,12 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
 \`\`\`
 
 Replace the example values with actual analysis. The JSON must be valid and parseable. Include ALL trades from the TRADES TABLE in the trades array. The tradeAnalysis object must contain the FULL detailed analysis for each trade.
+
+**IMPORTANT FOR WATCHLIST ITEMS:** Each watchlist item MUST include ALL fields shown in the example above, including:
+- company, sector, setupType
+- currentPrice, triggerLevel, potentialEntry, potentialStop, potentialTarget
+- pillarCount, grade, reasoning, catalyst, risks
+- pillars object with pass/note for all 6 pillars (livermore, oneil, minervini, darvas, raschke, weinstein)
 
 ---
 
@@ -1328,14 +1345,25 @@ function buildTradeAnalysisText(trade) {
 
 // Build formatted watchlist analysis text from JSON data
 function buildWatchlistAnalysisText(item) {
+  const p = item.pillars || {}
+
   let text = `### WATCHLIST: ${item.ticker}\n\n`
+
+  // Company info if available
+  if (item.company) {
+    text += `COMPANY: ${item.company}\n`
+  }
+  if (item.sector) {
+    text += `SECTOR: ${item.sector}\n`
+  }
+  text += `\n`
 
   // Status
   text += `**STATUS:** Watching for entry trigger\n\n`
 
-  // Watch note
-  if (item.note) {
-    text += `**SETUP:** ${item.note}\n\n`
+  // Setup identification
+  if (item.note || item.setupType) {
+    text += `**SETUP:** ${item.setupType || ''} ${item.note ? `— ${item.note}` : ''}\n\n`
   }
 
   // Current situation
@@ -1352,21 +1380,35 @@ function buildWatchlistAnalysisText(item) {
   text += `\n`
 
   // Potential trade levels
-  if (item.potentialEntry || item.potentialStop || item.potentialTarget) {
-    text += `**POTENTIAL TRADE LEVELS (if triggered):**\n`
-    if (item.potentialEntry) {
-      text += `- Entry Zone: ${item.potentialEntry}\n`
+  text += `**POTENTIAL TRADE LEVELS (if triggered):**\n`
+  text += `- Entry Zone: ${item.potentialEntry || 'TBD on trigger'}\n`
+  text += `- Stop Loss: ${item.potentialStop || 'TBD on trigger'}\n`
+  text += `- Target: ${item.potentialTarget || 'TBD on trigger'}\n`
+  text += `\n`
+
+  // Six Pillars (if available)
+  if (Object.keys(p).length > 0) {
+    text += `**SIX PILLARS ASSESSMENT:**\n`
+    const pillarNames = {
+      livermore: 'LIVERMORE — Pivotal Points',
+      oneil: "O'NEIL — CANSLIM / RS",
+      minervini: 'MINERVINI — Stage & VCP',
+      darvas: 'DARVAS — Box & Breakout',
+      raschke: 'RASCHKE — Momentum/Mean Reversion',
+      weinstein: 'WEINSTEIN — Weekly Stage'
     }
-    if (item.potentialStop) {
-      text += `- Stop Loss: ${item.potentialStop}\n`
-    }
-    if (item.potentialTarget) {
-      text += `- Target: ${item.potentialTarget}\n`
+
+    for (const [key, label] of Object.entries(pillarNames)) {
+      const pillar = p[key]
+      if (pillar) {
+        const mark = pillar.pass ? '✓' : '✗'
+        text += `[${mark}] ${label}: ${pillar.note || 'N/A'}\n`
+      }
     }
     text += `\n`
   }
 
-  // Pillar status
+  // Pillar count
   if (item.pillarCount !== undefined) {
     text += `**PILLAR COUNT:** ${item.pillarCount}/6 — ${item.pillarCount >= 3 ? 'Would PASS on trigger' : 'Needs improvement'}\n\n`
   }
