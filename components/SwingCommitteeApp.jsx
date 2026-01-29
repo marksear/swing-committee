@@ -1534,17 +1534,6 @@ Format: Ticker, Notes (we'll fetch live prices)"
                     </div>
                   )}
 
-                  {/* Watchlist Signals Section */}
-                  {analysisResult.watchlistSignals && (
-                    <div className="p-4 border-t border-gray-200">
-                      <h3 className="font-bold text-gray-900 mb-3">Detailed Watchlist Analysis</h3>
-                      <div className="prose prose-sm max-w-none">
-                        <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-4 rounded-lg overflow-auto max-h-96">
-                          {analysisResult.watchlistSignals}
-                        </pre>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 

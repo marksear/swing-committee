@@ -1293,8 +1293,39 @@ function extractSignals(text) {
     }
   }
 
-  // If we found signals from Chair's Decision, return those (they are the authoritative source)
+  // If we found signals from Chair's Decision, enrich them with detailed analysis from Part C
   if (signals.length > 0) {
+    // Get the watchlist signals section (Part C) which has detailed analysis
+    const watchlistAnalysis = extractSection(text, 'PART C', 'PART D') ||
+                              extractSection(text, 'WATCHLIST SIGNALS', 'PART D')
+
+    if (watchlistAnalysis) {
+      // For each signal, find and attach its detailed analysis
+      for (const signal of signals) {
+        const tickerPattern = new RegExp(
+          `##\\s*TRADE SIGNAL[:\\s]+${signal.ticker}(?:\\.L)?[^#]*?(?=##\\s*TRADE SIGNAL|PART [D-F]|$)`,
+          'is'
+        )
+        const detailedMatch = watchlistAnalysis.match(tickerPattern)
+
+        if (detailedMatch) {
+          signal.rawSection = detailedMatch[0].trim()
+
+          // Also extract additional data from detailed analysis
+          const pillarMatch = detailedMatch[0].match(/(\d)\s*\/\s*6\s*Pillars?/i) ||
+                              detailedMatch[0].match(/Pillar.*?(\d)\/6/i)
+          if (pillarMatch) {
+            signal.pillarCount = parseInt(pillarMatch[1])
+          }
+
+          const gradeMatch = detailedMatch[0].match(/Grade[:\s|]*\*?\*?([ABC]\+?)\*?\*?/i)
+          if (gradeMatch) {
+            signal.grade = gradeMatch[1].toUpperCase()
+          }
+        }
+      }
+    }
+
     return signals
   }
 
