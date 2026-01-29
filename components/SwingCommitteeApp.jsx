@@ -54,7 +54,7 @@ export default function SwingCommitteeApp() {
     // Watchlist
     watchlist: '',
     // Session
-    tradeMode: 'position',
+    tradeMode: 'short_term',
     marketSentiment: 5,
     regimeView: 'trending_up',
     sessionType: 'daily',
@@ -95,6 +95,36 @@ export default function SwingCommitteeApp() {
   useEffect(() => {
     fetchMarketPulse();
   }, []);
+
+  // Reset all analysis-related state for a fresh start
+  const resetForNewAnalysis = () => {
+    // Reset analysis state
+    setStep(0);
+    setAnalysisComplete(false);
+    setAnalysisResult(null);
+    setAnalysisError(null);
+
+    // Clear watchlist and prices
+    setWatchlistPrices({});
+    setPriceError(null);
+
+    // Clear suggestions
+    setSuggestions(null);
+    setSuggestionsError(null);
+    setShowSuggestions(false);
+
+    // Clear watchlist tickers in form
+    setFormData(prev => ({
+      ...prev,
+      watchlist: ''
+    }));
+
+    // Reset UI state
+    setExpandedSignal(null);
+    setActiveReportTab('summary');
+    setShowUKSources(false);
+    setShowUSSources(false);
+  };
 
   const getMarketSentimentColor = (score) => {
     if (score <= 3) return { text: 'text-red-600', bg: 'bg-red-500', light: 'bg-red-100' };
@@ -137,9 +167,11 @@ export default function SwingCommitteeApp() {
     if (!text) return [];
     const lines = text.split('\n').filter(line => line.trim());
     return lines.map(line => {
+      // Skip comment lines (starting with #)
+      if (line.trim().startsWith('#')) return null;
       const parts = line.split(',');
       return parts[0]?.trim().toUpperCase();
-    }).filter(ticker => ticker && ticker.length >= 1 && ticker.length <= 6);
+    }).filter(ticker => ticker && ticker.length >= 1 && !ticker.startsWith('#'));
   };
 
   // Fetch live prices from Yahoo Finance
@@ -279,17 +311,33 @@ export default function SwingCommitteeApp() {
     return 'bg-gray-400';
   };
 
-  const getDirectionColor = (direction) => {
-    if (!direction) return 'bg-gray-400';
-    if (direction.toUpperCase() === 'LONG') return 'bg-green-600';
-    if (direction.toUpperCase() === 'SHORT') return 'bg-red-600';
+  const getSignalBoxColor = (signal) => {
+    const verdict = signal?.verdict?.toUpperCase();
+    const direction = signal?.direction?.toUpperCase();
+
+    // NO TRADE or PASS = red
+    if (verdict === 'NO TRADE' || verdict === 'PASS') return 'bg-red-500';
+    // WATCHLIST = yellow/amber
+    if (verdict === 'WATCHLIST') return 'bg-amber-500';
+    // TAKE TRADE with direction
+    if (direction === 'LONG') return 'bg-green-600';
+    if (direction === 'SHORT') return 'bg-red-600';
+    // Fallback
     return 'bg-gray-400';
   };
 
-  const getDirectionLabel = (direction) => {
-    if (!direction) return '?';
-    if (direction.toUpperCase() === 'LONG') return 'L';
-    if (direction.toUpperCase() === 'SHORT') return 'S';
+  const getSignalBoxLabel = (signal) => {
+    const verdict = signal?.verdict?.toUpperCase();
+    const direction = signal?.direction?.toUpperCase();
+
+    // NO TRADE or PASS = X
+    if (verdict === 'NO TRADE' || verdict === 'PASS') return '✕';
+    // WATCHLIST = W
+    if (verdict === 'WATCHLIST') return 'W';
+    // TAKE TRADE with direction
+    if (direction === 'LONG') return 'L';
+    if (direction === 'SHORT') return 'S';
+    // Fallback
     return '?';
   };
 
@@ -310,7 +358,7 @@ export default function SwingCommitteeApp() {
               <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl mx-auto flex items-center justify-center shadow-lg">
                 <Activity className="w-10 h-10 text-white" />
               </div>
-              <h1 className="text-3xl font-bold text-gray-900">Swing Committee</h1>
+              <h1 className="text-3xl font-bold text-gray-900">The Trading Program</h1>
               <p className="text-gray-600 max-w-md mx-auto">
                 Systematic swing trading using the wisdom of Livermore, O'Neil, Minervini, Darvas, Raschke & Weinstein.
               </p>
@@ -1174,7 +1222,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                 <div className="absolute inset-0 border-4 border-blue-500 rounded-full border-t-transparent animate-spin"></div>
                 <Activity className="absolute inset-0 m-auto w-8 h-8 text-blue-600" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-900">Swing Committee in Session</h2>
+              <h2 className="text-2xl font-bold text-gray-900">The Trading Program in Session</h2>
 
               <div className="max-w-md mx-auto text-left bg-gray-50 rounded-xl p-4">
                 <div className="space-y-2">
@@ -1225,7 +1273,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
               <div className="bg-gradient-to-r from-blue-900 to-indigo-800 rounded-2xl p-6 text-white">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-blue-200 text-sm">Swing Committee Report</p>
+                    <p className="text-blue-200 text-sm">The Trading Program Report</p>
                     <h1 className="text-2xl font-bold mt-1">{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</h1>
                     <p className="text-blue-300 mt-2">
                       {formData.tradeMode === 'position' ? 'Position Swing Mode' : 'Short-Term Swing Mode'} • {analysisResult.mode || 'Balanced'} Committee
@@ -1324,15 +1372,24 @@ Format: Ticker, Notes (we'll fetch live prices)"
 
                   {analysisResult.signals && analysisResult.signals.length > 0 ? (
                     <div>
-                      {analysisResult.signals.map((signal, index) => (
+                      {analysisResult.signals
+                        .filter(signal => {
+                          // Only show actionable signals (LONG, SHORT, WATCHLIST)
+                          const verdict = signal?.verdict?.toUpperCase();
+                          const direction = signal?.direction?.toUpperCase();
+                          if (verdict === 'NO TRADE' || verdict === 'PASS') return false;
+                          if (direction === 'NO TRADE') return false;
+                          return true;
+                        })
+                        .map((signal, index) => (
                         <div key={index} className="border-b border-gray-100 last:border-b-0">
                           <button
                             onClick={() => setExpandedSignal(expandedSignal === signal.ticker ? null : signal.ticker)}
                             className="w-full p-4 flex items-center justify-between hover:bg-gray-50"
                           >
                             <div className="flex items-center gap-4">
-                              <div className={`w-12 h-12 ${getDirectionColor(signal.direction)} rounded-xl flex items-center justify-center text-white font-bold text-xl`}>
-                                {getDirectionLabel(signal.direction)}
+                              <div className={`w-12 h-12 ${getSignalBoxColor(signal)} rounded-xl flex items-center justify-center text-white font-bold text-xl`}>
+                                {getSignalBoxLabel(signal)}
                               </div>
                               <div className="text-left">
                                 <p className="font-bold text-gray-900">{signal.ticker}</p>
@@ -1435,7 +1492,8 @@ Format: Ticker, Notes (we'll fetch live prices)"
                     </div>
                   ) : (
                     <div className="p-8 text-center text-gray-500">
-                      <p>No specific signals extracted. Check the full report for details.</p>
+                      <p>No actionable trade signals found. All tickers were marked as NO TRADE.</p>
+                      <p className="text-sm mt-2">Check the Full Report for detailed analysis of each ticker.</p>
                     </div>
                   )}
 
@@ -1495,11 +1553,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
               {/* Start Over */}
               <div className="text-center">
                 <button
-                  onClick={() => {
-                    setStep(0);
-                    setAnalysisComplete(false);
-                    setAnalysisResult(null);
-                  }}
+                  onClick={resetForNewAnalysis}
                   className="text-gray-500 hover:text-gray-700"
                 >
                   ← Start New Analysis
@@ -1601,11 +1655,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
         {analysisComplete && (
           <div className="mt-6 text-center">
             <button
-              onClick={() => {
-                setStep(0);
-                setAnalysisComplete(false);
-                setAnalysisResult(null);
-              }}
+              onClick={resetForNewAnalysis}
               className="text-gray-500 hover:text-gray-700 text-sm"
             >
               ← Start New Analysis
@@ -1615,7 +1665,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
 
         {/* Footer */}
         <div className="text-center mt-8 text-sm text-gray-500">
-          <p>Swing Committee • Educational Tool Only • Not Financial Advice</p>
+          <p>The Trading Program • Educational Tool Only • Not Financial Advice</p>
         </div>
       </div>
     </div>

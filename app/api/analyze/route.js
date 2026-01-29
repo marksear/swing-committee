@@ -1059,17 +1059,39 @@ function extractCommitteeStance(text) {
 }
 
 function extractSummary(responseText) {
-  // Try to get the chair's action summary - stop before tables, horizontal rules, or new headers
-  const chairMatch = responseText.match(/This session we will:[\s\S]*?(?=\n\||\n---|\n\n\*\*|\n##|\n###)/i)
-  if (chairMatch) {
-    // Clean up any trailing markdown artifacts
-    let summary = chairMatch[0].trim()
-    // Remove incomplete table starts
-    summary = summary.replace(/\n\|.*$/s, '')
-    // Remove trailing asterisks or colons
-    summary = summary.replace(/[:\*]+\s*$/, '')
+  // Find the position of "This session we will" and grab content after it
+  const sessionWillIndex = responseText.toLowerCase().indexOf('this session we will')
+  if (sessionWillIndex !== -1) {
+    // Get text starting from "This session we will"
+    const textFromSession = responseText.substring(sessionWillIndex)
+
+    // Find where the summary ends (next major section)
+    const endPatterns = [/\n\n##/, /\n\n###/, /\n---\n/, /\n\n\*\*PART/, /\n\n\|/, /\n\nPART [A-F]/]
+    let endIndex = textFromSession.length
+    for (const pattern of endPatterns) {
+      const match = textFromSession.match(pattern)
+      if (match && match.index < endIndex) {
+        endIndex = match.index
+      }
+    }
+
+    let summary = textFromSession.substring(0, endIndex).trim()
+    // Clean up: remove "This session we will:" prefix variations and quotes
+    summary = summary.replace(/^This session we will:?\s*["']?\s*/i, '')
+    // Remove trailing incomplete tables or quotes
+    summary = summary.replace(/\n\|.*$/s, '').replace(/["']+$/, '').trim()
+
     if (summary.length > 20) {
-      return summary
+      return 'This session we will: ' + summary.substring(0, 800)
+    }
+  }
+
+  // Try alternative: capture bullet points after "This session we will"
+  const bulletMatch = responseText.match(/This session we will:?\s*["']?\s*\n((?:\s*[-•*1-9]\.*\s+[^\n]+\n?)+)/i)
+  if (bulletMatch && bulletMatch[1]) {
+    const summary = bulletMatch[1].trim()
+    if (summary.length > 20) {
+      return 'This session we will:\n' + summary.substring(0, 800)
     }
   }
 
@@ -1082,11 +1104,20 @@ function extractSummary(responseText) {
     }
   }
 
-  // Try to find chair's decision summary
-  const chairDecisionMatch = responseText.match(/Chair'?s? Decision[:\s]*\n([\s\S]*?)(?=\n##|\n###|\n---|\n\|)/i)
+  // Try to find chair's decision summary - look for content after the header
+  const chairDecisionMatch = responseText.match(/(?:Chair'?s? Decision|CHAIR'?S? DECISION)[:\s]*\n([\s\S]*?)(?=\n##|\n###|\n---|\n\|)/i)
   if (chairDecisionMatch && chairDecisionMatch[1]) {
     const summary = chairDecisionMatch[1].trim()
     if (summary.length > 20) {
+      return summary.substring(0, 800)
+    }
+  }
+
+  // Try to find any "Today we will" or "Session summary" patterns
+  const todayMatch = responseText.match(/(?:Today|Tonight|This morning|This evening)[,\s]+(?:we will|the committee will|I recommend)[:\s]*([\s\S]*?)(?=\n\n##|\n---)/i)
+  if (todayMatch && todayMatch[1]) {
+    const summary = todayMatch[1].trim()
+    if (summary.length > 30) {
       return summary.substring(0, 800)
     }
   }

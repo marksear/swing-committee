@@ -4,16 +4,33 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
+// Generate a date-based seed for consistent rankings within a time window
+function getDateSeed() {
+  const now = new Date()
+  // Use date + 4-hour window (0-5, 6-11, 12-17, 18-23)
+  const hourWindow = Math.floor(now.getHours() / 4)
+  return `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}-${hourWindow}`
+}
+
 export async function POST(request) {
   try {
     const { tradeMode } = await request.json()
+    const dateSeed = getDateSeed()
 
-    const prompt = `Using Yahoo Finance (uk.finance.yahoo.com) data, generate ticker-only swing-trade candidates.
+    const prompt = `Generate swing-trade candidates using Yahoo Finance TICKER SYMBOLS only.
+
+CONSISTENCY SEED: ${dateSeed}
+Use this seed to ensure consistent rankings. Given the same seed, always return the same tickers in the same order. The seed changes every 4 hours.
+
+CRITICAL: Output ONLY valid Yahoo Finance ticker symbols, NOT company names.
+- US examples: AAPL, NVDA, MSFT, INTC, BA, WBA, MRNA (NOT "Apple", "Intel", "Boeing", "Walgreens", "Moderna")
+- UK examples: LLOY.L, BARC.L, BP.L, VOD.L (NOT "Lloyds", "Barclays", "BP")
+- Commodity examples: GC=F (Gold), CL=F (WTI Crude), HG=F (Copper)
 
 Universe:
-- US: S&P 500 + Nasdaq 100 constituents
-- UK: FTSE 100 + most liquid FTSE 250 (use .L tickers)
-- Commodities: Gold, WTI Crude, Copper (or their most liquid Yahoo tickers)
+- US: S&P 500 + Nasdaq 100 constituents (use ticker symbols like AAPL, NVDA, MSFT, GOOGL, AMZN, META, INTC, BA, WBA, MRNA, CVS)
+- UK: FTSE 100 + most liquid FTSE 250 (use .L suffix tickers like LLOY.L, BARC.L, BP.L, SHEL.L, AZN.L)
+- Commodities: GC=F (Gold), CL=F (WTI Crude), HG=F (Copper)
 
 HARD FILTERS (apply to both modes)
 1) Liquidity:
@@ -40,11 +57,15 @@ MODES
 
 OUTPUT REQUIREMENTS (STRICT)
 - Output ONLY the lines below. No commentary, no bullets, no extra text.
+- CRITICAL: Use ONLY valid Yahoo Finance ticker symbols (e.g., INTC not INTEL, BA not BOEING, WBA not WALGREENS, MRNA not MODERNA)
 - 50/50 mix for review, per mode:
   - US: 5 LONG + 5 SHORT (10 total)
   - UK: 5 LONG + 5 SHORT (10 total)
   - Commodities: 2 LONG + 1 SHORT for each mode (3 total)
 - Tickers must be comma-separated.
+- CRITICAL: A ticker must NEVER appear in both LONG and SHORT lists within the same market and mode.
+  For example: If AAPL is in SHORT_TERM_US_LONG, it CANNOT be in SHORT_TERM_US_SHORT.
+  Similarly for UK tickers: if VOD.L is in POSITION_UK_LONG, it CANNOT be in POSITION_UK_SHORT.
 - Ensure NO duplicates within the same line. Avoid duplicates across lines where possible.
 
 OUTPUT FORMAT (exact keys)
@@ -158,5 +179,23 @@ function parseSuggestions(text, tradeMode) {
     }
   }
 
+  // Deduplicate: Remove any ticker that appears in both LONG and SHORT lists
+  // LONG takes priority (if a ticker is in both, remove it from SHORT)
+  deduplicateLongShort(result.shortTerm, 'usLong', 'usShort')
+  deduplicateLongShort(result.shortTerm, 'ukLong', 'ukShort')
+  deduplicateLongShort(result.shortTerm, 'commodLong', 'commodShort')
+  deduplicateLongShort(result.position, 'usLong', 'usShort')
+  deduplicateLongShort(result.position, 'ukLong', 'ukShort')
+  deduplicateLongShort(result.position, 'commodLong', 'commodShort')
+
   return result
+}
+
+// Remove tickers that appear in both long and short lists
+// Priority: LONG takes precedence, duplicates removed from SHORT
+function deduplicateLongShort(modeData, longKey, shortKey) {
+  const longTickers = new Set(modeData[longKey].map(t => t.toUpperCase()))
+  modeData[shortKey] = modeData[shortKey].filter(
+    ticker => !longTickers.has(ticker.toUpperCase())
+  )
 }
