@@ -902,12 +902,17 @@ ${[formData.ukStocks && '- UK Stocks', formData.usStocks && '- US Stocks', formD
 | User Sentiment | ${formData.marketSentiment}/10 |
 | User Regime View | ${formData.regimeView} |
 
-## Market Pulse
+## Market Pulse (LIVE DATA - USE THESE EXACT LEVELS)
 
-| Market | Score | Label | Regime |
-|--------|-------|-------|--------|
-| UK | ${marketPulse.uk.score}/10 | ${marketPulse.uk.label} | ${marketPulse.uk.regime} |
-| US | ${marketPulse.us.score}/10 | ${marketPulse.us.label} | ${marketPulse.us.regime} |
+| Market | Index | Current Price | 50-Day MA | 200-Day MA | Score | Regime |
+|--------|-------|---------------|-----------|------------|-------|--------|
+| UK | FTSE 100 | ${marketPulse.uk.price?.toLocaleString() || 'N/A'} | ${marketPulse.uk.ma50?.toFixed(0) || 'N/A'} | ${marketPulse.uk.ma200?.toFixed(0) || 'N/A'} | ${marketPulse.uk.score}/10 | ${marketPulse.uk.regime} |
+| US | S&P 500 | ${marketPulse.us.price?.toLocaleString() || 'N/A'} | ${marketPulse.us.ma50?.toFixed(0) || 'N/A'} | ${marketPulse.us.ma200?.toFixed(0) || 'N/A'} | ${marketPulse.us.score}/10 | ${marketPulse.us.regime} |
+
+**IMPORTANT: For "Key Levels to Monitor" section, use these ACTUAL current prices:**
+- S&P 500 is currently at ${marketPulse.us.price?.toLocaleString() || 'N/A'} - monitor support/resistance relative to THIS level
+- FTSE 100 is currently at ${marketPulse.uk.price?.toLocaleString() || 'N/A'} - monitor support/resistance relative to THIS level
+- Do NOT use outdated levels like "6000" for S&P or "8400" for FTSE - these are from 2024!
 
 ---
 
@@ -1108,7 +1113,11 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
   ],
   "summary": "Enter long positions in NVDA on VCP breakout pattern with 4 pillar alignment.",
   "totalRisk": "£100",
-  "portfolioHeat": "1.0%"
+  "portfolioHeat": "1.0%",
+  "keyLevels": {
+    "sp500": { "current": 6000, "support": 5900, "resistance": 6100 },
+    "ftse": { "current": 8500, "support": 8400, "resistance": 8600 }
+  }
 }
 \`\`\`
 
