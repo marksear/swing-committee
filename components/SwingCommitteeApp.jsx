@@ -312,32 +312,66 @@ export default function SwingCommitteeApp() {
     return 'bg-gray-400';
   };
 
-  const getSignalBoxColor = (signal) => {
-    const verdict = signal?.verdict?.toUpperCase();
-    const direction = signal?.direction?.toUpperCase();
+  // Helper to check if signal is a NO TRADE
+  const isNoTrade = (signal) => {
+    const verdict = (signal?.verdict || '').toUpperCase();
+    const direction = (signal?.direction || '').toUpperCase();
+    const rawSection = (signal?.rawSection || '').toUpperCase();
 
-    // NO TRADE or PASS = red
-    if (verdict === 'NO TRADE' || verdict === 'PASS') return 'bg-red-500';
-    // WATCHLIST = yellow/amber
-    if (verdict === 'WATCHLIST') return 'bg-amber-500';
+    // Check verdict field
+    if (verdict.includes('NO TRADE') || verdict === 'PASS') return true;
+    // Check direction field
+    if (direction.includes('NO TRADE') || direction === 'PASS') return true;
+    // Check raw section for explicit NO TRADE verdict
+    if (rawSection.includes('**VERDICT:** NO TRADE') || rawSection.includes('VERDICT: NO TRADE')) return true;
+    if (rawSection.includes('- DIRECTION: NO TRADE')) return true;
+
+    return false;
+  };
+
+  // Helper to check if signal is WATCHLIST
+  const isWatchlist = (signal) => {
+    const verdict = (signal?.verdict || '').toUpperCase();
+    const direction = (signal?.direction || '').toUpperCase();
+
+    if (verdict.includes('WATCHLIST')) return true;
+    if (direction.includes('WATCHLIST')) return true;
+
+    return false;
+  };
+
+  // Helper to get actual trade direction (LONG/SHORT) - only if it's a real trade
+  const getTradeDirection = (signal) => {
+    if (isNoTrade(signal) || isWatchlist(signal)) return null;
+
+    const direction = (signal?.direction || '').toUpperCase();
+    if (direction === 'LONG') return 'LONG';
+    if (direction === 'SHORT') return 'SHORT';
+    return null;
+  };
+
+  const getSignalBoxColor = (signal) => {
+    // NO TRADE = should not be shown (filtered out)
+    if (isNoTrade(signal)) return 'bg-red-500';
+    // WATCHLIST = orange
+    if (isWatchlist(signal)) return 'bg-orange-500';
     // TAKE TRADE with direction
-    if (direction === 'LONG') return 'bg-green-600';
-    if (direction === 'SHORT') return 'bg-red-600';
+    const tradeDir = getTradeDirection(signal);
+    if (tradeDir === 'LONG') return 'bg-green-600';
+    if (tradeDir === 'SHORT') return 'bg-red-600';
     // Fallback
     return 'bg-gray-400';
   };
 
   const getSignalBoxLabel = (signal) => {
-    const verdict = signal?.verdict?.toUpperCase();
-    const direction = signal?.direction?.toUpperCase();
-
-    // NO TRADE or PASS = X
-    if (verdict === 'NO TRADE' || verdict === 'PASS') return '✕';
+    // NO TRADE = should not be shown
+    if (isNoTrade(signal)) return '✕';
     // WATCHLIST = W
-    if (verdict === 'WATCHLIST') return 'W';
+    if (isWatchlist(signal)) return 'W';
     // TAKE TRADE with direction
-    if (direction === 'LONG') return 'L';
-    if (direction === 'SHORT') return 'S';
+    const tradeDir = getTradeDirection(signal);
+    if (tradeDir === 'LONG') return 'L';
+    if (tradeDir === 'SHORT') return 'S';
     // Fallback
     return '?';
   };
@@ -1378,14 +1412,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                   {analysisResult.signals && analysisResult.signals.length > 0 ? (
                     <div>
                       {analysisResult.signals
-                        .filter(signal => {
-                          // Only show actionable signals (LONG, SHORT, WATCHLIST)
-                          const verdict = signal?.verdict?.toUpperCase();
-                          const direction = signal?.direction?.toUpperCase();
-                          if (verdict === 'NO TRADE' || verdict === 'PASS') return false;
-                          if (direction === 'NO TRADE') return false;
-                          return true;
-                        })
+                        .filter(signal => !isNoTrade(signal))
                         .map((signal, index) => (
                         <div key={index} className="border-b border-gray-100 last:border-b-0">
                           <button
