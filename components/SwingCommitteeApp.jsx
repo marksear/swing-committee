@@ -211,6 +211,7 @@ export default function SwingCommitteeApp() {
 
   // Format price for display
   const formatPrice = (price, currency) => {
+    if (price === undefined || price === null) return 'N/A';
     if (currency === 'GBp') return `${price.toFixed(0)}p`; // UK pence
     if (currency === 'GBP') return `£${price.toFixed(2)}`;
     return `$${price.toFixed(2)}`;
