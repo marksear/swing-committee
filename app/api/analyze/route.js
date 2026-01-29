@@ -1108,7 +1108,18 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
   "watchlist": [
     {
       "ticker": "GOOGL",
-      "note": "Watch for breakout above $175"
+      "note": "Watch for breakout above $175",
+      "direction": "LONG",
+      "currentPrice": "$174.50",
+      "triggerLevel": "$175.00",
+      "potentialEntry": "$175.50-$177.00",
+      "potentialStop": "$168.00",
+      "potentialTarget": "$190.00",
+      "pillarCount": 3,
+      "grade": "B",
+      "reasoning": "Consolidating below resistance. Need volume confirmation on breakout. 3/6 pillars currently aligned - would improve to 4/6 on breakout.",
+      "catalyst": "Awaiting breakout above key resistance",
+      "risks": ["Could fail at resistance", "Market sentiment dependent"]
     }
   ],
   "summary": "Enter long positions in NVDA on VCP breakout pattern with 4 pillar alignment.",
@@ -1196,19 +1207,22 @@ function convertJsonToSignals(jsonData) {
   // Convert watchlist items to signals
   if (jsonData.watchlist && Array.isArray(jsonData.watchlist)) {
     for (const item of jsonData.watchlist) {
+      // Build comprehensive rawSection for watchlist items
+      let rawSection = buildWatchlistAnalysisText(item)
+
       signals.push({
         ticker: item.ticker?.replace('.L', ''),
         name: item.ticker,
         direction: 'WATCHLIST ONLY',
         verdict: 'WATCHLIST',
-        entry: null,
-        stop: null,
-        target: null,
-        grade: null,
-        pillarCount: null,
+        entry: item.potentialEntry || null,
+        stop: item.potentialStop || null,
+        target: item.potentialTarget || null,
+        grade: item.grade || null,
+        pillarCount: item.pillarCount || null,
         setupType: item.note?.substring(0, 50) || 'Watchlist',
         riskReward: null,
-        rawSection: `Watchlist: ${item.ticker} - ${item.note}`
+        rawSection
       })
     }
   }
@@ -1308,6 +1322,80 @@ function buildTradeAnalysisText(trade) {
   // Grade and verdict
   text += `**GRADE:** ${trade.grade || 'N/A'}\n\n`
   text += `**VERDICT:** TAKE TRADE\n`
+
+  return text
+}
+
+// Build formatted watchlist analysis text from JSON data
+function buildWatchlistAnalysisText(item) {
+  let text = `### WATCHLIST: ${item.ticker}\n\n`
+
+  // Status
+  text += `**STATUS:** Watching for entry trigger\n\n`
+
+  // Watch note
+  if (item.note) {
+    text += `**SETUP:** ${item.note}\n\n`
+  }
+
+  // Current situation
+  text += `**CURRENT SITUATION:**\n`
+  if (item.currentPrice) {
+    text += `- Current Price: ${item.currentPrice}\n`
+  }
+  if (item.triggerLevel) {
+    text += `- Trigger Level: ${item.triggerLevel}\n`
+  }
+  if (item.direction) {
+    text += `- Direction Bias: ${item.direction}\n`
+  }
+  text += `\n`
+
+  // Potential trade levels
+  if (item.potentialEntry || item.potentialStop || item.potentialTarget) {
+    text += `**POTENTIAL TRADE LEVELS (if triggered):**\n`
+    if (item.potentialEntry) {
+      text += `- Entry Zone: ${item.potentialEntry}\n`
+    }
+    if (item.potentialStop) {
+      text += `- Stop Loss: ${item.potentialStop}\n`
+    }
+    if (item.potentialTarget) {
+      text += `- Target: ${item.potentialTarget}\n`
+    }
+    text += `\n`
+  }
+
+  // Pillar status
+  if (item.pillarCount !== undefined) {
+    text += `**PILLAR COUNT:** ${item.pillarCount}/6 — ${item.pillarCount >= 3 ? 'Would PASS on trigger' : 'Needs improvement'}\n\n`
+  }
+
+  // Grade
+  if (item.grade) {
+    text += `**POTENTIAL GRADE:** ${item.grade}\n\n`
+  }
+
+  // Reasoning
+  if (item.reasoning) {
+    text += `**REASONING:**\n${item.reasoning}\n\n`
+  }
+
+  // Catalyst
+  if (item.catalyst) {
+    text += `**WAITING FOR:** ${item.catalyst}\n\n`
+  }
+
+  // Risks
+  if (item.risks && item.risks.length > 0) {
+    text += `**RISK FACTORS:**\n`
+    item.risks.forEach((risk, i) => {
+      text += `${i + 1}. ${risk}\n`
+    })
+    text += `\n`
+  }
+
+  text += `**VERDICT:** WATCHLIST — Monitor for entry trigger\n`
 
   return text
 }
