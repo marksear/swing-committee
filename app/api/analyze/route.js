@@ -1063,9 +1063,16 @@ function parseResponse(responseText) {
 
 function extractCommitteeStance(text) {
   const stancePatterns = [
-    /Committee Stance[:\s]*(Aggressive|Balanced|Defensive)/i,
+    // Match **Selected Committee:** Balanced format (with markdown bold)
+    /\*\*Selected Committee:\*\*\s*(Aggressive|Balanced|Defensive)/i,
+    /\*\*Committee Stance:\*\*\s*(Aggressive|Balanced|Defensive)/i,
+    // Match plain text formats
     /Selected Committee[:\s]*(Aggressive|Balanced|Defensive)/i,
+    /Committee Stance[:\s]*(Aggressive|Balanced|Defensive)/i,
     /\*\*Stance\*\*[:\s]*(Aggressive|Balanced|Defensive)/i,
+    // Match from Decision Journal table
+    /Committee Stance\s*\|\s*(Aggressive|Balanced|Defensive)/i,
+    // Generic patterns
     /(AGGRESSIVE|BALANCED|DEFENSIVE)\s*(?:POSITION|COMMITTEE)/i
   ]
 
@@ -1325,7 +1332,30 @@ function extractSignals(text) {
     }
   }
 
+  // Pattern 4: Extract from ACTION SUMMARY narrative - "META long on...", "INTC short on..."
   if (chairSection) {
+    const narrativePattern = /([A-Z]{1,5}(?:\.[A-Z])?)\s+(long|short)\s+(?:on|for|at)/gi
+    for (const match of chairSection.matchAll(narrativePattern)) {
+      const ticker = match[1].toUpperCase()
+      const direction = match[2].toUpperCase()
+
+      if (!signals.find(s => s.ticker === ticker || s.ticker === ticker.replace('.L', ''))) {
+        signals.push({
+          ticker: ticker.replace('.L', ''),
+          name: ticker,
+          direction,
+          verdict: 'TAKE TRADE',
+          entry: null,
+          stop: null,
+          grade: null,
+          pillarCount: null,
+          setupType: `${direction === 'LONG' ? 'BUY' : 'SELL'} ${direction}`,
+          target: null,
+          riskReward: null,
+          rawSection: `From Chair's Summary: ${ticker} ${direction}`
+        })
+      }
+    }
 
     // Also extract watchlist items from Chair's Decision
     // Format: "1. GOOGL – Watch for breakout above $340"
