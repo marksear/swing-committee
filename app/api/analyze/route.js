@@ -1105,13 +1105,24 @@ function extractSummary(responseText) {
     const committee = chairMatch[1].trim()
     const rationale = chairMatch[2].trim()
 
-    // Also look for ACTION SUMMARY content
-    const actionMatch = responseText.match(/ACTION SUMMARY[^"]*"This session we will:?"?\*?\*?\s*\n?([\s\S]*?)(?=\n\n\*\*(?:TRADES|Total|Watchlist)|$)/i)
+    // Also look for ACTION SUMMARY content - try multiple patterns
     let actionSummary = ''
-    if (actionMatch && actionMatch[1]) {
-      actionSummary = cleanSummary(actionMatch[1])
-      // Stop at table
+
+    // Pattern 1: Standard ACTION SUMMARY format
+    const actionMatch1 = responseText.match(/ACTION SUMMARY[^"]*"This session we will:?"?\*?\*?\s*\n?([\s\S]*?)(?=\n\n\*\*(?:TRADES|Total|Watchlist)|$)/i)
+    if (actionMatch1 && actionMatch1[1]) {
+      actionSummary = cleanSummary(actionMatch1[1])
       actionSummary = actionSummary.split(/\n\|/)[0].trim()
+    }
+
+    // Pattern 2: Standalone "This session we will" without ACTION SUMMARY header
+    if (!actionSummary || actionSummary.length < 20) {
+      const sessionWillPattern = /This session we will:?\s*\n?([\s\S]*?)(?=\n\n\*\*(?:TRADES|Total)|$)/i
+      const sessionMatch = responseText.match(sessionWillPattern)
+      if (sessionMatch && sessionMatch[1]) {
+        actionSummary = cleanSummary(sessionMatch[1])
+        actionSummary = actionSummary.split(/\n\|/)[0].trim()
+      }
     }
 
     let summary = `**Selected Committee:** ${committee}\n**Rationale:** ${rationale}`
@@ -1120,7 +1131,7 @@ function extractSummary(responseText) {
     }
 
     if (summary.length > 50) {
-      return summary.substring(0, 1000)
+      return summary.substring(0, 1200) // Allow longer summary
     }
   }
 
@@ -1139,14 +1150,12 @@ function extractSummary(responseText) {
       }
     }
 
-    let summary = textFromSession.substring(0, Math.min(endIndex, 800)).trim()
+    let summary = textFromSession.substring(0, Math.min(endIndex, 1000)).trim()
     summary = cleanSummary(summary)
 
-    // Remove the "This session we will:" prefix for cleaner output
-    summary = summary.replace(/^This session we will:?\s*/i, '')
-
+    // Keep the "This session we will:" prefix
     if (summary.length > 20) {
-      return 'This session we will: ' + summary.substring(0, 800)
+      return summary.substring(0, 1000)
     }
   }
 
@@ -1235,6 +1244,28 @@ function extractSection(text, startMarker, endMarker) {
 function extractSignals(text) {
   const signals = []
 
+  // Helper to add a signal if not already present
+  const addSignal = (ticker, direction, verdict, setupType, rawSection, entry = null, stop = null) => {
+    // Normalize ticker - handle .L suffix
+    const normalizedTicker = ticker.replace('.L', '')
+    if (!signals.find(s => s.ticker === normalizedTicker || s.ticker === ticker)) {
+      signals.push({
+        ticker: normalizedTicker,
+        name: ticker,
+        direction,
+        verdict,
+        entry,
+        stop,
+        grade: null,
+        pillarCount: null,
+        setupType,
+        target: null,
+        riskReward: null,
+        rawSection
+      })
+    }
+  }
+
   // FIRST: Extract from Chair's Decision table (Part E) - these are the ACTUAL trades
   const chairSection = extractSection(text, 'PART E', 'PART F') ||
                        extractSection(text, "CHAIR'S DECISION", 'PART F') ||
@@ -1244,9 +1275,14 @@ function extractSignals(text) {
   const journalSection = extractSection(text, 'PART F', 'PILLAR') ||
                          extractSection(text, 'DECISION JOURNAL', 'PILLAR')
 
+  // Also get the summary section for extracting tickers
+  const summarySection = extractSection(text, 'ACTION SUMMARY', 'TRADES TABLE') ||
+                         extractSection(text, 'This session we will', 'TRADES TABLE')
+
   if (chairSection) {
     // Pattern 1: Full table format | BUY | NVDA | LONG | $191-193 | $183.50 | ...
-    const tableRowPattern = /\|\s*(BUY|SELL|HOLD)\s*\|\s*([A-Z]{1,5}(?:\.[A-Z])?)\s*\|\s*(LONG|SHORT)\s*\|\s*[£$]?([\d,.-]+(?:\s*[-–]\s*[\d,.]+)?)\s*\|\s*[£$]?([\d,.]+)/gi
+    // Also handle tickers with = like GC=F (commodities)
+    const tableRowPattern = /\|\s*(BUY|SELL|HOLD)\s*\|\s*([A-Z]{1,5}(?:=[A-Z])?(?:\.[A-Z])?)\s*\|\s*(LONG|SHORT)\s*\|\s*[£$]?([\d,.-]+(?:\s*[-–]\s*[\d,.]+)?)\s*\|\s*[£$]?([\d,.]+)/gi
 
     for (const match of chairSection.matchAll(tableRowPattern)) {
       const action = match[1].toUpperCase()
@@ -1255,133 +1291,136 @@ function extractSignals(text) {
       const entry = match[4].replace(/,/g, '').replace('–', '-')
       const stop = match[5].replace(/,/g, '')
 
-      if (!signals.find(s => s.ticker === ticker || s.ticker === ticker.replace('.L', ''))) {
-        signals.push({
-          ticker: ticker.replace('.L', ''),
-          name: ticker,
-          direction,
-          verdict: 'TAKE TRADE',
-          entry,
-          stop,
-          grade: null,
-          pillarCount: null,
-          setupType: `${action} ${direction}`,
-          target: null,
-          riskReward: null,
-          rawSection: `Chair's Decision: ${action} ${ticker} ${direction} Entry: ${entry} Stop: ${stop}`
-        })
-      }
+      addSignal(ticker, direction, 'TAKE TRADE', `${action} ${direction}`,
+                `Chair's Decision: ${action} ${ticker} ${direction} Entry: ${entry} Stop: ${stop}`, entry, stop)
     }
   }
 
   // Pattern 2: Extract from Decision Journal "Trades | META LONG, SHEL.L LONG |" format
-  if (signals.length === 0 && journalSection) {
+  if (journalSection) {
     const tradesMatch = journalSection.match(/Trades\s*\|\s*([^|]+)\|/i)
     if (tradesMatch) {
       const tradesStr = tradesMatch[1].trim()
-      // Parse "META LONG, SHEL.L LONG" format
-      const tradePattern = /([A-Z]{1,5}(?:\.[A-Z])?)\s+(LONG|SHORT)/gi
+      // Parse "META LONG, SHEL.L LONG, GC=F LONG" format - handle commodities too
+      const tradePattern = /([A-Z]{1,5}(?:=[A-Z])?(?:\.[A-Z])?)\s+(LONG|SHORT)/gi
       for (const match of tradesStr.matchAll(tradePattern)) {
         const ticker = match[1].toUpperCase()
         const direction = match[2].toUpperCase()
-
-        if (!signals.find(s => s.ticker === ticker || s.ticker === ticker.replace('.L', ''))) {
-          signals.push({
-            ticker: ticker.replace('.L', ''),
-            name: ticker,
-            direction,
-            verdict: 'TAKE TRADE',
-            entry: null,
-            stop: null,
-            grade: null,
-            pillarCount: null,
-            setupType: `BUY ${direction}`,
-            target: null,
-            riskReward: null,
-            rawSection: `From Decision Journal: ${ticker} ${direction}`
-          })
-        }
+        addSignal(ticker, direction, 'TAKE TRADE', `BUY ${direction}`,
+                  `From Decision Journal: ${ticker} ${direction}`)
       }
     }
   }
 
   // Pattern 3: Look for explicit "BUY TICKER" or "SELL TICKER" in Chair's section
-  if (signals.length === 0 && chairSection) {
-    const buyPattern = /\b(BUY|SELL)\s+([A-Z]{1,5}(?:\.[A-Z])?)\b/gi
+  if (chairSection) {
+    const buyPattern = /\b(BUY|SELL)\s+([A-Z]{1,5}(?:=[A-Z])?(?:\.[A-Z])?)\b/gi
     for (const match of chairSection.matchAll(buyPattern)) {
       const action = match[1].toUpperCase()
       const ticker = match[2].toUpperCase()
       const direction = action === 'BUY' ? 'LONG' : 'SHORT'
+      addSignal(ticker, direction, 'TAKE TRADE', `${action} ${direction}`,
+                `Chair's Decision: ${action} ${ticker}`)
+    }
+  }
 
-      if (!signals.find(s => s.ticker === ticker || s.ticker === ticker.replace('.L', ''))) {
-        signals.push({
-          ticker: ticker.replace('.L', ''),
-          name: ticker,
-          direction,
-          verdict: 'TAKE TRADE',
-          entry: null,
-          stop: null,
-          grade: null,
-          pillarCount: null,
-          setupType: `${action} ${direction}`,
-          target: null,
-          riskReward: null,
-          rawSection: `Chair's Decision: ${action} ${ticker}`
-        })
+  // Pattern 4: Extract "TICKER long/short" - with or without following words
+  // This catches: "NVDA long on...", "VOD.L short", "GC=F long for..."
+  if (chairSection) {
+    const narrativePattern = /\b([A-Z]{1,5}(?:=[A-Z])?(?:\.[A-Z])?)\s+(long|short)\b/gi
+    for (const match of chairSection.matchAll(narrativePattern)) {
+      const ticker = match[1].toUpperCase()
+      const direction = match[2].toUpperCase()
+      addSignal(ticker, direction, 'TAKE TRADE', `${direction === 'LONG' ? 'BUY' : 'SELL'} ${direction}`,
+                `From Chair's Summary: ${ticker} ${direction}`)
+    }
+  }
+
+  // Pattern 5: Extract tickers in parentheses like "(SHEL.L, BP.L)" from summary text
+  // This is for narrative formats like "energy breakouts (SHEL.L, BP.L)"
+  const allText = (chairSection || '') + ' ' + (summarySection || '')
+  const parenthesesPattern = /\(([A-Z]{1,5}(?:=[A-Z])?(?:\.[A-Z])?)(?:\s*,\s*([A-Z]{1,5}(?:=[A-Z])?(?:\.[A-Z])?))*\)/gi
+  for (const match of allText.matchAll(parenthesesPattern)) {
+    // Get the full match content inside parentheses
+    const content = match[0].slice(1, -1) // Remove ( and )
+    const tickers = content.split(/\s*,\s*/)
+    for (const ticker of tickers) {
+      const cleanTicker = ticker.trim().toUpperCase()
+      if (cleanTicker && cleanTicker.length >= 1 && /^[A-Z]/.test(cleanTicker)) {
+        // Check context for direction (look for nearby "long" or "short")
+        const contextStart = Math.max(0, match.index - 100)
+        const contextEnd = Math.min(allText.length, match.index + match[0].length + 50)
+        const context = allText.substring(contextStart, contextEnd).toLowerCase()
+
+        let direction = 'LONG' // Default to LONG
+        if (context.includes('short') || context.includes('weakness') || context.includes('decline')) {
+          direction = 'SHORT'
+        }
+        addSignal(cleanTicker, direction, 'TAKE TRADE', `${direction === 'LONG' ? 'BUY' : 'SELL'} ${direction}`,
+                  `From Summary: ${cleanTicker} ${direction}`)
       }
     }
   }
 
-  // Pattern 4: Extract from ACTION SUMMARY narrative - "META long on...", "INTC short on..."
-  if (chairSection) {
-    const narrativePattern = /([A-Z]{1,5}(?:\.[A-Z])?)\s+(long|short)\s+(?:on|for|at)/gi
-    for (const match of chairSection.matchAll(narrativePattern)) {
+  // Pattern 6: Look for "TICKER short" pattern specifically (no "on/for/at" required)
+  // This catches "VOD.L short" at end of sentences
+  if (allText) {
+    const shortPattern = /([A-Z]{1,5}(?:=[A-Z])?(?:\.[A-Z])?)\s+short(?:\s|$|,|\))/gi
+    for (const match of allText.matchAll(shortPattern)) {
       const ticker = match[1].toUpperCase()
-      const direction = match[2].toUpperCase()
+      addSignal(ticker, 'SHORT', 'TAKE TRADE', 'SELL SHORT', `From Text: ${ticker} SHORT`)
+    }
+  }
 
-      if (!signals.find(s => s.ticker === ticker || s.ticker === ticker.replace('.L', ''))) {
-        signals.push({
-          ticker: ticker.replace('.L', ''),
-          name: ticker,
-          direction,
-          verdict: 'TAKE TRADE',
-          entry: null,
-          stop: null,
-          grade: null,
-          pillarCount: null,
-          setupType: `${direction === 'LONG' ? 'BUY' : 'SELL'} ${direction}`,
-          target: null,
-          riskReward: null,
-          rawSection: `From Chair's Summary: ${ticker} ${direction}`
-        })
+  // Pattern 7: Extract from specific "take X trades" or "X high-probability trades" patterns
+  // e.g., "Take five high-probability trades focusing on energy breakouts (SHEL.L, BP.L)"
+  const tradeCountPattern = /take\s+(?:(\d+)|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:high[- ]probability\s+)?trades?\s+(?:focusing\s+on\s+)?([^.]+)/gi
+  for (const match of allText.matchAll(tradeCountPattern)) {
+    const tradeDescription = match[2]
+    // Extract any tickers mentioned in this description
+    const tickerMentions = tradeDescription.matchAll(/([A-Z]{1,5}(?:=[A-Z])?(?:\.[A-Z])?)/g)
+    for (const tickerMatch of tickerMentions) {
+      const ticker = tickerMatch[1].toUpperCase()
+      // Filter out common non-ticker words
+      if (!['A', 'I', 'THE', 'AND', 'OR', 'FOR', 'ON', 'IN', 'TO', 'AT', 'OF'].includes(ticker)) {
+        const isShort = tradeDescription.toLowerCase().includes('short') ||
+                        tradeDescription.toLowerCase().includes('weakness')
+        addSignal(ticker, isShort ? 'SHORT' : 'LONG', 'TAKE TRADE',
+                  isShort ? 'SELL SHORT' : 'BUY LONG',
+                  `From Trade Summary: ${ticker}`)
       }
     }
+  }
 
-    // Also extract watchlist items from Chair's Decision
+  // Also extract watchlist items from Chair's Decision
+  if (chairSection) {
     // Format: "1. GOOGL – Watch for breakout above $340"
-    const watchlistPattern = /\d+\.\s*([A-Z]{1,5}(?:\.[A-Z])?)\s*[-–]\s*([^\n]+)/gi
+    const watchlistPattern = /\d+\.\s*([A-Z]{1,5}(?:=[A-Z])?(?:\.[A-Z])?)\s*[-–]\s*([^\n]+)/gi
     const watchlistSection = chairSection.match(/\*\*Watchlist[^*]*\*\*[\s\S]*?(?=\*\*|$)/i)
 
     if (watchlistSection) {
       for (const match of watchlistSection[0].matchAll(watchlistPattern)) {
-        const ticker = match[1].toUpperCase().replace('.L', '')
+        const ticker = match[1].toUpperCase()
         const note = match[2].trim()
+        addSignal(ticker, 'WATCHLIST ONLY', 'WATCHLIST', note.substring(0, 50),
+                  `Watchlist: ${ticker} - ${note}`)
+      }
+    }
+  }
 
-        if (!signals.find(s => s.ticker === ticker)) {
-          signals.push({
-            ticker,
-            name: ticker,
-            direction: 'WATCHLIST ONLY',
-            verdict: 'WATCHLIST',
-            entry: null,
-            stop: null,
-            grade: null,
-            pillarCount: null,
-            setupType: note.substring(0, 50),
-            target: null,
-            riskReward: null,
-            rawSection: `Watchlist: ${ticker} - ${note}`
-          })
+  // Pattern 8: LAST RESORT - scan the full text for TICKER with LONG/SHORT context
+  // This catches anything we might have missed
+  if (signals.length === 0) {
+    // Look for tickers followed by long/short anywhere in the text
+    const fullTextPattern = /\b([A-Z]{2,5}(?:=[A-Z])?(?:\.[A-Z])?)\b[^.]*?\b(LONG|SHORT)\b/gi
+    for (const match of text.matchAll(fullTextPattern)) {
+      const ticker = match[1].toUpperCase()
+      const direction = match[2].toUpperCase()
+      // Filter out common non-ticker words and ensure it looks like a ticker
+      if (!['A', 'I', 'THE', 'AND', 'OR', 'FOR', 'ON', 'IN', 'TO', 'AT', 'OF', 'IF', 'IS', 'BE'].includes(ticker)) {
+        if (/^[A-Z]{2,5}(=[A-Z])?(\.[A-Z])?$/.test(ticker)) {
+          addSignal(ticker, direction, 'TAKE TRADE', `${direction === 'LONG' ? 'BUY' : 'SELL'} ${direction}`,
+                    `From Full Text: ${ticker} ${direction}`)
         }
       }
     }
