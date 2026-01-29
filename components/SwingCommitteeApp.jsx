@@ -56,7 +56,7 @@ export default function SwingCommitteeApp() {
     // Session
     tradeMode: 'short_term',
     marketSentiment: 5,
-    regimeView: 'trending_up',
+    regimeView: 'uncertain',
     sessionType: 'daily',
   });
 
@@ -1215,17 +1215,17 @@ Format: Ticker, Notes (we'll fetch live prices)"
                   className="relative w-full h-3 bg-transparent rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-gray-800 [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-gray-800 [&::-moz-range-thumb]:shadow-lg [&::-moz-range-thumb]:cursor-pointer"
                 />
               </div>
-              <div className="flex justify-between text-xs mt-1">
+              <div className="relative flex text-xs mt-1">
                 <span className="text-red-600 font-medium">Defensive</span>
-                <span className="text-amber-600 font-medium">Balanced</span>
-                <span className="text-green-600 font-medium">Aggressive</span>
+                <span className="absolute left-1/2 -translate-x-1/2 text-amber-600 font-medium">Balanced</span>
+                <span className="ml-auto text-green-600 font-medium">Aggressive</span>
               </div>
               <div className={`mt-2 p-2 rounded-lg text-sm ${getSentimentLabel(formData.marketSentiment).bg}`}>
                 <span className={getSentimentLabel(formData.marketSentiment).color}>
                   {getSentimentLabel(formData.marketSentiment).label}
                 </span>
                 <span className="text-gray-600"> — Committee stance: {
-                  formData.marketSentiment <= 3 ? 'Defensive' :
+                  formData.marketSentiment <= 4 ? 'Defensive' :
                   formData.marketSentiment <= 6 ? 'Balanced' : 'Aggressive'
                 }</span>
               </div>
