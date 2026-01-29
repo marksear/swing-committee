@@ -1229,25 +1229,28 @@ function extractSignals(text) {
   const signals = []
 
   // FIRST: Extract from Chair's Decision table (Part E) - these are the ACTUAL trades
-  // Look for the table format: | BUY | NVDA | LONG | $191-193 | $183.50 | ...
   const chairSection = extractSection(text, 'PART E', 'PART F') ||
                        extractSection(text, "CHAIR'S DECISION", 'PART F') ||
                        extractSection(text, "CHAIR'S DECISION", 'DECISION JOURNAL')
 
+  // ALSO check the Decision Journal for trade list
+  const journalSection = extractSection(text, 'PART F', 'PILLAR') ||
+                         extractSection(text, 'DECISION JOURNAL', 'PILLAR')
+
   if (chairSection) {
-    // Match table rows: | Action | Ticker | Direction | Entry | Stop | ...
+    // Pattern 1: Full table format | BUY | NVDA | LONG | $191-193 | $183.50 | ...
     const tableRowPattern = /\|\s*(BUY|SELL|HOLD)\s*\|\s*([A-Z]{1,5}(?:\.[A-Z])?)\s*\|\s*(LONG|SHORT)\s*\|\s*[£$]?([\d,.-]+(?:\s*[-–]\s*[\d,.]+)?)\s*\|\s*[£$]?([\d,.]+)/gi
 
     for (const match of chairSection.matchAll(tableRowPattern)) {
       const action = match[1].toUpperCase()
-      const ticker = match[2].toUpperCase().replace('.L', '')
+      const ticker = match[2].toUpperCase()
       const direction = match[3].toUpperCase()
       const entry = match[4].replace(/,/g, '').replace('–', '-')
       const stop = match[5].replace(/,/g, '')
 
-      if (!signals.find(s => s.ticker === ticker)) {
+      if (!signals.find(s => s.ticker === ticker || s.ticker === ticker.replace('.L', ''))) {
         signals.push({
-          ticker,
+          ticker: ticker.replace('.L', ''),
           name: ticker,
           direction,
           verdict: 'TAKE TRADE',
@@ -1262,6 +1265,67 @@ function extractSignals(text) {
         })
       }
     }
+  }
+
+  // Pattern 2: Extract from Decision Journal "Trades | META LONG, SHEL.L LONG |" format
+  if (signals.length === 0 && journalSection) {
+    const tradesMatch = journalSection.match(/Trades\s*\|\s*([^|]+)\|/i)
+    if (tradesMatch) {
+      const tradesStr = tradesMatch[1].trim()
+      // Parse "META LONG, SHEL.L LONG" format
+      const tradePattern = /([A-Z]{1,5}(?:\.[A-Z])?)\s+(LONG|SHORT)/gi
+      for (const match of tradesStr.matchAll(tradePattern)) {
+        const ticker = match[1].toUpperCase()
+        const direction = match[2].toUpperCase()
+
+        if (!signals.find(s => s.ticker === ticker || s.ticker === ticker.replace('.L', ''))) {
+          signals.push({
+            ticker: ticker.replace('.L', ''),
+            name: ticker,
+            direction,
+            verdict: 'TAKE TRADE',
+            entry: null,
+            stop: null,
+            grade: null,
+            pillarCount: null,
+            setupType: `BUY ${direction}`,
+            target: null,
+            riskReward: null,
+            rawSection: `From Decision Journal: ${ticker} ${direction}`
+          })
+        }
+      }
+    }
+  }
+
+  // Pattern 3: Look for explicit "BUY TICKER" or "SELL TICKER" in Chair's section
+  if (signals.length === 0 && chairSection) {
+    const buyPattern = /\b(BUY|SELL)\s+([A-Z]{1,5}(?:\.[A-Z])?)\b/gi
+    for (const match of chairSection.matchAll(buyPattern)) {
+      const action = match[1].toUpperCase()
+      const ticker = match[2].toUpperCase()
+      const direction = action === 'BUY' ? 'LONG' : 'SHORT'
+
+      if (!signals.find(s => s.ticker === ticker || s.ticker === ticker.replace('.L', ''))) {
+        signals.push({
+          ticker: ticker.replace('.L', ''),
+          name: ticker,
+          direction,
+          verdict: 'TAKE TRADE',
+          entry: null,
+          stop: null,
+          grade: null,
+          pillarCount: null,
+          setupType: `${action} ${direction}`,
+          target: null,
+          riskReward: null,
+          rawSection: `Chair's Decision: ${action} ${ticker}`
+        })
+      }
+    }
+  }
+
+  if (chairSection) {
 
     // Also extract watchlist items from Chair's Decision
     // Format: "1. GOOGL – Watch for breakout above $340"
@@ -1302,11 +1366,18 @@ function extractSignals(text) {
     if (watchlistAnalysis) {
       // For each signal, find and attach its detailed analysis
       for (const signal of signals) {
-        const tickerPattern = new RegExp(
-          `##\\s*TRADE SIGNAL[:\\s]+${signal.ticker}(?:\\.L)?[^#]*?(?=##\\s*TRADE SIGNAL|PART [D-F]|$)`,
-          'is'
-        )
-        const detailedMatch = watchlistAnalysis.match(tickerPattern)
+        // Try with and without .L suffix
+        const tickerVariants = [signal.ticker, signal.ticker + '.L', signal.name]
+        let detailedMatch = null
+
+        for (const tickerVariant of tickerVariants) {
+          const tickerPattern = new RegExp(
+            `##\\s*TRADE SIGNAL[:\\s]+${tickerVariant.replace('.', '\\.')}[^#]*?(?=##\\s*TRADE SIGNAL|PART [D-F]|$)`,
+            'is'
+          )
+          detailedMatch = watchlistAnalysis.match(tickerPattern)
+          if (detailedMatch) break
+        }
 
         if (detailedMatch) {
           signal.rawSection = detailedMatch[0].trim()
