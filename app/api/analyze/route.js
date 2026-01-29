@@ -1040,25 +1040,130 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
 
 ---
 
+## PART G — STRUCTURED DATA (REQUIRED)
+
+**IMPORTANT: You MUST include this JSON block at the very end of your response. This is used for parsing.**
+
+\`\`\`json
+{
+  "committee": "Balanced",
+  "trades": [
+    {
+      "ticker": "NVDA",
+      "direction": "LONG",
+      "entry": "138.00-140.00",
+      "stop": "131.00",
+      "target": "155.00",
+      "shares": 20,
+      "spreadBetSize": "£0.37/pt",
+      "risk": "£100",
+      "grade": "A",
+      "pillarCount": 4,
+      "setupType": "VCP Breakout"
+    }
+  ],
+  "watchlist": [
+    {
+      "ticker": "GOOGL",
+      "note": "Watch for breakout above $175"
+    }
+  ],
+  "summary": "Enter long positions in NVDA on VCP breakout pattern with 4 pillar alignment.",
+  "totalRisk": "£100",
+  "portfolioHeat": "1.0%"
+}
+\`\`\`
+
+Replace the example values with actual analysis. The JSON must be valid and parseable. Include ALL trades from the TRADES TABLE in the trades array.
+
+---
+
 Be specific and practical. For each trade signal, provide BOTH Standard (shares) AND Spread Bet (£/point) sizing. Mark any data that needs real-time verification as **NEEDS CHECK**.`
 }
 
 function parseResponse(responseText) {
+  // First, try to extract structured JSON data (most reliable)
+  const jsonData = extractJsonData(responseText)
+
   const result = {
-    mode: extractCommitteeStance(responseText),
-    summary: extractSummary(responseText),
-    signals: extractSignals(responseText),
+    mode: jsonData?.committee || extractCommitteeStance(responseText),
+    summary: jsonData?.summary || extractSummary(responseText),
+    signals: jsonData ? convertJsonToSignals(jsonData) : extractSignals(responseText),
     marketRegime: extractSection(responseText, 'PART A', 'PART B') || extractSection(responseText, 'MARKET REGIME', 'PART B'),
     positionsReview: extractSection(responseText, 'PART B', 'PART C') || extractSection(responseText, 'OPEN POSITIONS REVIEW', 'PART C'),
     watchlistSignals: extractSection(responseText, 'PART C', 'PART D') || extractSection(responseText, 'WATCHLIST SIGNALS', 'PART D'),
     committeePositions: extractSection(responseText, 'PART D', 'PART E') || extractSection(responseText, 'THREE COMMITTEE POSITIONS', 'PART E'),
     chairDecision: extractSection(responseText, 'PART E', 'PART F') || extractSection(responseText, "CHAIR'S DECISION", 'PART F'),
     decisionJournal: extractSection(responseText, 'PART F', 'PILLAR REMINDER') || extractSection(responseText, 'DECISION JOURNAL', null),
-    pillarReminder: extractSection(responseText, 'PILLAR REMINDER', null),
+    pillarReminder: extractSection(responseText, 'PILLAR REMINDER', 'PART G') || extractSection(responseText, 'PILLAR REMINDER', null),
     fullAnalysis: responseText
   }
 
   return result
+}
+
+// Extract JSON data block from response
+function extractJsonData(text) {
+  try {
+    // Look for JSON code block
+    const jsonMatch = text.match(/```json\s*\n?([\s\S]*?)\n?```/i)
+    if (jsonMatch && jsonMatch[1]) {
+      const jsonStr = jsonMatch[1].trim()
+      const data = JSON.parse(jsonStr)
+      console.log('Successfully parsed JSON data:', data)
+      return data
+    }
+  } catch (error) {
+    console.error('Failed to parse JSON data:', error.message)
+  }
+  return null
+}
+
+// Convert JSON data to signals array format
+function convertJsonToSignals(jsonData) {
+  const signals = []
+
+  // Convert trades to signals
+  if (jsonData.trades && Array.isArray(jsonData.trades)) {
+    for (const trade of jsonData.trades) {
+      signals.push({
+        ticker: trade.ticker?.replace('.L', ''),
+        name: trade.ticker,
+        direction: trade.direction?.toUpperCase() || 'LONG',
+        verdict: 'TAKE TRADE',
+        entry: trade.entry,
+        stop: trade.stop,
+        target: trade.target,
+        grade: trade.grade,
+        pillarCount: trade.pillarCount,
+        setupType: trade.setupType || `${trade.direction?.toUpperCase() || 'BUY'} ${trade.direction?.toUpperCase() || 'LONG'}`,
+        riskReward: null,
+        rawSection: `Trade: ${trade.ticker} ${trade.direction} | Entry: ${trade.entry} | Stop: ${trade.stop} | Target: ${trade.target} | Grade: ${trade.grade} | Pillars: ${trade.pillarCount}/6 | Risk: ${trade.risk}`
+      })
+    }
+  }
+
+  // Convert watchlist items to signals
+  if (jsonData.watchlist && Array.isArray(jsonData.watchlist)) {
+    for (const item of jsonData.watchlist) {
+      signals.push({
+        ticker: item.ticker?.replace('.L', ''),
+        name: item.ticker,
+        direction: 'WATCHLIST ONLY',
+        verdict: 'WATCHLIST',
+        entry: null,
+        stop: null,
+        target: null,
+        grade: null,
+        pillarCount: null,
+        setupType: item.note?.substring(0, 50) || 'Watchlist',
+        riskReward: null,
+        rawSection: `Watchlist: ${item.ticker} - ${item.note}`
+      })
+    }
+  }
+
+  return signals
 }
 
 function extractCommitteeStance(text) {
