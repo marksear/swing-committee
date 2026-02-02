@@ -30,6 +30,10 @@ export default function SwingCommitteeApp() {
   const [suggestions, setSuggestions] = useState(null);
   const [suggestionsError, setSuggestionsError] = useState(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanResults, setScanResults] = useState(null);
+  const [scanError, setScanError] = useState(null);
+  const [showScanner, setShowScanner] = useState(false);
 
   const [formData, setFormData] = useState({
     // Account
@@ -255,6 +259,48 @@ export default function SwingCommitteeApp() {
 
     setFormData({ ...formData, watchlist: updatedWatchlist });
     setWatchlistPrices({}); // Clear prices when watchlist changes
+  };
+
+  // Run technical scanner on market universe
+  const runScanner = async () => {
+    setIsScanning(true);
+    setScanError(null);
+    setShowScanner(true);
+
+    try {
+      const response = await fetch('/api/scanner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: formData.tradeMode === 'position' ? 'position' : 'short_term',
+          markets: ['US', 'UK']
+        })
+      });
+
+      if (!response.ok) throw new Error('Scanner failed');
+
+      const data = await response.json();
+      setScanResults(data);
+    } catch (error) {
+      setScanError(error.message);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  // Add scanned stocks to watchlist
+  const addScanResultsToWatchlist = (stocks, label) => {
+    const tickerList = stocks.map(s => s.ticker).join('\n');
+    const comment = `# ${label}`;
+    const newEntry = `${comment}\n${tickerList}`;
+
+    const currentWatchlist = formData.watchlist.trim();
+    const updatedWatchlist = currentWatchlist
+      ? `${currentWatchlist}\n\n${newEntry}`
+      : newEntry;
+
+    setFormData({ ...formData, watchlist: updatedWatchlist });
+    setWatchlistPrices({});
   };
 
   const runAnalysis = async () => {
@@ -822,26 +868,187 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
         return (
           <div className="space-y-6">
             <h2 className="text-2xl font-bold text-gray-900">Watchlist</h2>
-            <div className="flex items-center justify-between">
-              <p className="text-gray-600">Enter tickers you want the committee to analyze</p>
+            <p className="text-gray-600">Scan markets or enter tickers manually</p>
+
+            {/* Scanner Buttons */}
+            <div className="flex gap-3">
+              <button
+                onClick={runScanner}
+                disabled={isScanning}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-medium rounded-xl hover:from-blue-700 hover:to-cyan-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isScanning ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Scanning {formData.tradeMode === 'position' ? 'Position' : 'Short-Term'} Setups...
+                  </>
+                ) : (
+                  <>
+                    <Crosshair className="w-5 h-5" />
+                    Scan Markets (Technical)
+                  </>
+                )}
+              </button>
               <button
                 onClick={generateSuggestions}
                 disabled={isGeneratingSuggestions}
-                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-indigo-500 text-white text-sm font-medium rounded-lg hover:from-purple-600 hover:to-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium rounded-xl hover:from-purple-600 hover:to-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isGeneratingSuggestions ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Generating...
+                    AI...
                   </>
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4" />
-                    Generate Suggestions
+                    AI Suggest
                   </>
                 )}
               </button>
             </div>
+
+            {/* Scanner Results Panel */}
+            {showScanner && (
+              <div className="bg-gradient-to-br from-blue-50 to-cyan-50 border border-blue-200 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-blue-900 flex items-center gap-2">
+                    <Crosshair className="w-5 h-5 text-blue-600" />
+                    Technical Scanner Results
+                    {scanResults && (
+                      <span className="text-xs font-normal text-blue-600">
+                        ({scanResults.totalScanned} stocks scanned)
+                      </span>
+                    )}
+                  </h3>
+                  <button
+                    onClick={() => setShowScanner(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <XCircle className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {isScanning ? (
+                  <div className="flex flex-col items-center justify-center py-8">
+                    <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-3" />
+                    <p className="text-blue-700 font-medium">Scanning 100+ stocks...</p>
+                    <p className="text-blue-600 text-sm">Calculating RSI, MAs, momentum, volume...</p>
+                  </div>
+                ) : scanError ? (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+                    {scanError}
+                    <button onClick={runScanner} className="ml-2 underline">Try again</button>
+                  </div>
+                ) : scanResults ? (
+                  <div className="space-y-4">
+                    {/* Long Candidates */}
+                    {scanResults.results.long.length > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-medium text-green-800 flex items-center gap-2">
+                            <TrendingUp className="w-4 h-4" />
+                            Long Candidates ({scanResults.results.long.length})
+                          </h4>
+                          <button
+                            onClick={() => addScanResultsToWatchlist(scanResults.results.long, 'Scanner Longs')}
+                            className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
+                          >
+                            Add All to Watchlist
+                          </button>
+                        </div>
+                        <div className="grid gap-2 max-h-48 overflow-y-auto">
+                          {scanResults.results.long.slice(0, 8).map((stock, i) => (
+                            <div key={stock.ticker} className="bg-white border border-green-200 rounded-lg p-2 flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <span className="w-6 h-6 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-bold">
+                                  {i + 1}
+                                </span>
+                                <div>
+                                  <p className="font-bold text-gray-900">{stock.ticker}</p>
+                                  <p className="text-xs text-gray-500 truncate max-w-[200px]">{stock.reasoning}</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-bold text-green-600">{stock.score?.toFixed(0)}%</p>
+                                <p className="text-xs text-gray-500">RSI: {stock.indicators?.rsi?.toFixed(0)}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Short Candidates */}
+                    {scanResults.results.short.length > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-medium text-red-800 flex items-center gap-2">
+                            <TrendingDown className="w-4 h-4" />
+                            Short Candidates ({scanResults.results.short.length})
+                          </h4>
+                          <button
+                            onClick={() => addScanResultsToWatchlist(scanResults.results.short, 'Scanner Shorts')}
+                            className="text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700"
+                          >
+                            Add All to Watchlist
+                          </button>
+                        </div>
+                        <div className="grid gap-2 max-h-48 overflow-y-auto">
+                          {scanResults.results.short.slice(0, 8).map((stock, i) => (
+                            <div key={stock.ticker} className="bg-white border border-red-200 rounded-lg p-2 flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <span className="w-6 h-6 bg-red-100 text-red-700 rounded-full flex items-center justify-center text-xs font-bold">
+                                  {i + 1}
+                                </span>
+                                <div>
+                                  <p className="font-bold text-gray-900">{stock.ticker}</p>
+                                  <p className="text-xs text-gray-500 truncate max-w-[200px]">{stock.reasoning}</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-bold text-red-600">{stock.score?.toFixed(0)}%</p>
+                                <p className="text-xs text-gray-500">RSI: {stock.indicators?.rsi?.toFixed(0)}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Watchlist Candidates */}
+                    {scanResults.results.watchlist.length > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-medium text-amber-800 flex items-center gap-2">
+                            <Eye className="w-4 h-4" />
+                            Watch List ({scanResults.results.watchlist.length})
+                          </h4>
+                          <button
+                            onClick={() => addScanResultsToWatchlist(scanResults.results.watchlist, 'Scanner Watch')}
+                            className="text-xs bg-amber-600 text-white px-2 py-1 rounded hover:bg-amber-700"
+                          >
+                            Add All
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {scanResults.results.watchlist.slice(0, 10).map((stock) => (
+                            <span key={stock.ticker} className="bg-white border border-amber-200 rounded px-2 py-1 text-sm">
+                              <span className="font-medium">{stock.ticker}</span>
+                              <span className="text-amber-600 ml-1">{stock.score?.toFixed(0)}%</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <p className="text-xs text-blue-600 italic">
+                      Scanned using Six Pillars methodology: momentum, RSI, MAs, volume, VCP patterns
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             {/* Suggestions Panel */}
             {showSuggestions && (
