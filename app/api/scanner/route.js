@@ -32,9 +32,9 @@ const UNIVERSE = {
 
 export async function POST(request) {
   try {
-    const { mode = 'short_term', markets = ['US', 'UK'] } = await request.json()
+    const { mode = 'short_term', markets = ['US', 'UK'], marketTrend = 'neutral' } = await request.json()
 
-    console.log(`Starting scan for mode: ${mode}, markets: ${markets.join(', ')}`)
+    console.log(`Starting scan for mode: ${mode}, markets: ${markets.join(', ')}, trend: ${marketTrend}`)
 
     // Build list of tickers to scan
     let tickersToScan = []
@@ -52,16 +52,44 @@ export async function POST(request) {
       .filter(r => r && !r.error && r.score !== null)
       .sort((a, b) => b.score - a.score)
 
-    // Separate into longs and shorts
+    // Determine thresholds based on market trend
+    // When trending up: lower bar for longs, higher bar for shorts
+    // When trending down: higher bar for longs, lower bar for shorts
+    let longScoreThreshold, shortScoreThreshold, longPillarMin, shortPillarMin
+
+    if (marketTrend === 'up') {
+      longScoreThreshold = 70
+      shortScoreThreshold = 75
+      longPillarMin = 5
+      shortPillarMin = 5
+    } else if (marketTrend === 'down') {
+      longScoreThreshold = 75
+      shortScoreThreshold = 70
+      longPillarMin = 5
+      shortPillarMin = 5
+    } else {
+      // Neutral - equal thresholds
+      longScoreThreshold = 70
+      shortScoreThreshold = 70
+      longPillarMin = 5
+      shortPillarMin = 5
+    }
+
+    // Count passing pillars for each result
+    const countPassingPillars = (r) => Object.values(r.pillars).filter(p => p.score >= 5).length
+    const countBearishPillars = (r) => Object.values(r.pillars).filter(p => p.score <= 3).length
+
+    // Filter longs: score threshold + minimum pillars passing
     const longCandidates = validResults
       .filter(r => r.direction === 'LONG')
-      .slice(0, 15)
+      .filter(r => r.score >= longScoreThreshold && countPassingPillars(r) >= longPillarMin)
 
+    // Filter shorts: score threshold + minimum pillars bearish
     const shortCandidates = validResults
       .filter(r => r.direction === 'SHORT')
-      .slice(0, 15)
+      .filter(r => r.score >= shortScoreThreshold && countBearishPillars(r) >= shortPillarMin)
 
-    // Also get watchlist candidates (mixed signals, need monitoring)
+    // Watchlist: lower threshold, for monitoring
     const watchlistCandidates = validResults
       .filter(r => r.direction === 'WATCH')
       .slice(0, 10)
@@ -70,6 +98,11 @@ export async function POST(request) {
       timestamp: new Date().toISOString(),
       mode,
       markets,
+      marketTrend,
+      thresholds: {
+        long: { score: longScoreThreshold, pillars: longPillarMin },
+        short: { score: shortScoreThreshold, pillars: shortPillarMin }
+      },
       totalScanned: tickersToScan.length,
       results: {
         long: longCandidates,

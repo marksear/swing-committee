@@ -268,12 +268,28 @@ export default function SwingCommitteeApp() {
     setShowScanner(true);
 
     try {
+      // Determine overall market trend from US and UK regimes
+      let marketTrend = 'neutral';
+      if (marketPulseData) {
+        const usUp = marketPulseData.us?.regime === 'Trending Up';
+        const ukUp = marketPulseData.uk?.regime === 'Trending Up';
+        const usDown = marketPulseData.us?.regime === 'Trending Down';
+        const ukDown = marketPulseData.uk?.regime === 'Trending Down';
+
+        // If both or one is trending, use that direction
+        if (usUp || ukUp) marketTrend = 'up';
+        if (usDown || ukDown) marketTrend = 'down';
+        // If conflicting, stay neutral
+        if ((usUp && ukDown) || (usDown && ukUp)) marketTrend = 'neutral';
+      }
+
       const response = await fetch('/api/scanner', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: formData.tradeMode === 'position' ? 'position' : 'short_term',
-          markets: ['US', 'UK']
+          markets: ['US', 'UK'],
+          marketTrend
         })
       });
 
@@ -925,13 +941,22 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                   </div>
                 ) : scanResults ? (
                   <div className="space-y-4">
+                    {/* Trend & Threshold Info */}
+                    <div className="text-xs text-gray-500 flex items-center gap-2">
+                      <span>Market trend: <span className={scanResults.marketTrend === 'up' ? 'text-green-600 font-medium' : scanResults.marketTrend === 'down' ? 'text-red-600 font-medium' : 'text-gray-600'}>{scanResults.marketTrend || 'neutral'}</span></span>
+                      <span>•</span>
+                      <span>Longs ≥{scanResults.thresholds?.long?.score}% + {scanResults.thresholds?.long?.pillars}+ pillars</span>
+                      <span>•</span>
+                      <span>Shorts ≥{scanResults.thresholds?.short?.score}% + {scanResults.thresholds?.short?.pillars}+ pillars</span>
+                    </div>
+
                     {/* Long Candidates */}
-                    {scanResults.results.long.length > 0 && (
+                    {scanResults.results.long.length > 0 ? (
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="font-medium text-green-800 flex items-center gap-2">
                             <TrendingUp className="w-4 h-4" />
-                            Long Candidates ({Math.min(8, scanResults.results.long.length)})
+                            Long Candidates ({scanResults.results.long.length})
                           </h4>
                           <button
                             onClick={() => addScanResultsToWatchlist(scanResults.results.long, 'Scanner Longs')}
@@ -941,7 +966,7 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                           </button>
                         </div>
                         <div className="grid gap-2 max-h-48 overflow-y-auto">
-                          {scanResults.results.long.slice(0, 8).map((stock, i) => (
+                          {scanResults.results.long.map((stock, i) => (
                             <div key={stock.ticker} className="bg-white border border-green-200 rounded-lg p-2 flex items-center justify-between">
                               <div className="flex items-center gap-3">
                                 <span className="w-6 h-6 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-bold">
@@ -960,15 +985,20 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                           ))}
                         </div>
                       </div>
+                    ) : (
+                      <div className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">
+                        <TrendingUp className="w-4 h-4 inline mr-1 text-green-600" />
+                        No long candidates meet the threshold ({scanResults.thresholds?.long?.score}%+ score, {scanResults.thresholds?.long?.pillars}+ pillars)
+                      </div>
                     )}
 
                     {/* Short Candidates */}
-                    {scanResults.results.short.length > 0 && (
+                    {scanResults.results.short.length > 0 ? (
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="font-medium text-red-800 flex items-center gap-2">
                             <TrendingDown className="w-4 h-4" />
-                            Short Candidates ({Math.min(8, scanResults.results.short.length)})
+                            Short Candidates ({scanResults.results.short.length})
                           </h4>
                           <button
                             onClick={() => addScanResultsToWatchlist(scanResults.results.short, 'Scanner Shorts')}
@@ -978,7 +1008,7 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                           </button>
                         </div>
                         <div className="grid gap-2 max-h-48 overflow-y-auto">
-                          {scanResults.results.short.slice(0, 8).map((stock, i) => (
+                          {scanResults.results.short.map((stock, i) => (
                             <div key={stock.ticker} className="bg-white border border-red-200 rounded-lg p-2 flex items-center justify-between">
                               <div className="flex items-center gap-3">
                                 <span className="w-6 h-6 bg-red-100 text-red-700 rounded-full flex items-center justify-center text-xs font-bold">
@@ -996,6 +1026,11 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                             </div>
                           ))}
                         </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">
+                        <TrendingDown className="w-4 h-4 inline mr-1 text-red-600" />
+                        No short candidates meet the threshold ({scanResults.thresholds?.short?.score}%+ score, {scanResults.thresholds?.short?.pillars}+ pillars)
                       </div>
                     )}
 
