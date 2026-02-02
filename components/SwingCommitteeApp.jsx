@@ -931,7 +931,7 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="font-medium text-green-800 flex items-center gap-2">
                             <TrendingUp className="w-4 h-4" />
-                            Long Candidates ({scanResults.results.long.length})
+                            Long Candidates ({Math.min(8, scanResults.results.long.length)})
                           </h4>
                           <button
                             onClick={() => addScanResultsToWatchlist(scanResults.results.long, 'Scanner Longs')}
@@ -968,7 +968,7 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="font-medium text-red-800 flex items-center gap-2">
                             <TrendingDown className="w-4 h-4" />
-                            Short Candidates ({scanResults.results.short.length})
+                            Short Candidates ({Math.min(8, scanResults.results.short.length)})
                           </h4>
                           <button
                             onClick={() => addScanResultsToWatchlist(scanResults.results.short, 'Scanner Shorts')}
