@@ -870,7 +870,7 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
             <h2 className="text-2xl font-bold text-gray-900">Watchlist</h2>
             <p className="text-gray-600">Scan markets or enter tickers manually</p>
 
-            {/* Scanner Buttons */}
+            {/* Scanner Button */}
             <div className="flex gap-3">
               <button
                 onClick={runScanner}
@@ -884,25 +884,8 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                   </>
                 ) : (
                   <>
-                    <Crosshair className="w-5 h-5" />
-                    Scan Markets (Technical)
-                  </>
-                )}
-              </button>
-              <button
-                onClick={generateSuggestions}
-                disabled={isGeneratingSuggestions}
-                className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-500 to-indigo-500 text-white font-medium rounded-xl hover:from-purple-600 hover:to-indigo-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isGeneratingSuggestions ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    AI...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    AI Suggest
+                    <Sparkles className="w-5 h-5" />
+                    Scan Markets (AI)
                   </>
                 )}
               </button>
