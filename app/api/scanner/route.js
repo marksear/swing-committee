@@ -479,18 +479,22 @@ function determineTradeDirection(pillars, indicators, mode) {
   }
 
   // SHORT criteria (inverse of long)
+  // Count bearish pillars (inverse scoring - low scores are good for shorts)
+  const bearishPillars = Object.values(pillars).filter(p => p.score <= 3).length
+
   if (indicators.priceVsMa50 < -5 && indicators.priceVsMa200 < 0 &&
       indicators.momentum20d < -5 && indicators.rsi < 45) {
-    reasoning.push('Below key MAs')
-    reasoning.push(`Momentum: ${indicators.momentum20d.toFixed(1)}%`)
-    reasoning.push(`RSI: ${indicators.rsi.toFixed(0)}`)
+    reasoning.push(`${bearishPillars}/6 pillars bearish`)
+    reasoning.push(`Score: ${(100 - scorePercent).toFixed(0)}%`)
+    if (indicators.distanceFrom52High < -20) reasoning.push('Far from 52w high')
+    if (indicators.rsi < 30) reasoning.push('Oversold')
 
-    // Score shorts by how bearish they are
-    const shortScore = Math.abs(indicators.momentum20d) + (50 - indicators.rsi) / 2
+    // Score shorts by how bearish they are (inverse of pillar score)
+    const shortScore = 100 - scorePercent
 
     return {
       direction: 'SHORT',
-      score: Math.min(100, shortScore * 2),
+      score: Math.max(shortScore, Math.abs(indicators.momentum20d) * 2),
       reasoning: reasoning.join(', ')
     }
   }
