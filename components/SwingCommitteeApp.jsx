@@ -772,6 +772,48 @@ export default function SwingCommitteeApp() {
       case 1:
         return (
           <div className="space-y-6">
+            {/* Compact Market Pulse Header */}
+            <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-xl p-4 text-white">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
+                    <BarChart2 className="w-5 h-5" />
+                  </div>
+                  <span className="font-bold">Market Pulse</span>
+                </div>
+                <div className="flex items-center gap-4 text-sm">
+                  {marketPulseData ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span>🇬🇧</span>
+                        <span className={marketPulseData.uk?.aboveMa50 ? 'text-green-400' : 'text-red-400'}>
+                          {marketPulseData.uk?.regime || 'Loading'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span>🇺🇸</span>
+                        <span className={marketPulseData.us?.aboveMa50 ? 'text-green-400' : 'text-red-400'}>
+                          {marketPulseData.us?.regime || 'Loading'}
+                        </span>
+                      </div>
+                      {/* Regime Gate Quick Status */}
+                      {(() => {
+                        const benchmark = marketPulseData.us || marketPulseData.uk;
+                        const isRiskOn = benchmark?.aboveMa50 && benchmark?.ma50Rising && (benchmark?.distributionDays || 0) <= 4;
+                        return (
+                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${isRiskOn ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}`}>
+                            {isRiskOn ? '🟢 RISK-ON' : '🟠 RISK-OFF'}
+                          </span>
+                        );
+                      })()}
+                    </>
+                  ) : (
+                    <span className="text-gray-400">Loading market data...</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <h2 className="text-2xl font-bold text-gray-900">Account Settings</h2>
             <p className="text-gray-600">Configure your risk parameters</p>
 
@@ -1071,30 +1113,33 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                   </div>
                 ) : scanResults ? (
                   <div className="space-y-4">
-                    {/* Regime Gate Status - PROMINENT BANNER */}
-                    {scanResults.regimeGate && (
-                      <div className={`relative mb-2 ${!scanResults.regimeGate.riskOn ? 'pb-4' : ''}`}>
-                        <div className={`flex items-center justify-between px-4 py-3 rounded-xl text-base font-bold shadow-sm ${
-                          scanResults.regimeGate.riskOn
-                            ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white'
-                            : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white'
-                        }`}>
-                          <div className="flex items-center gap-3">
-                            <span className="w-4 h-4 rounded-full bg-white animate-pulse"></span>
-                            <span className="text-lg">{scanResults.regimeGate.riskOn ? '🟢 RISK-ON' : '🟠 RISK-OFF'}</span>
+                    {/* Regime Gate Status - PROMINENT BANNER - Always show with defaults if missing */}
+                    {(() => {
+                      const gate = scanResults.regimeGate || { riskOn: true, benchmarkAbove50MA: true, distributionDays: 0 };
+                      return (
+                        <div className={`relative mb-2 ${!gate.riskOn ? 'pb-4' : ''}`}>
+                          <div className={`flex items-center justify-between px-4 py-3 rounded-xl text-base font-bold shadow-sm ${
+                            gate.riskOn
+                              ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white'
+                              : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white'
+                          }`}>
+                            <div className="flex items-center gap-3">
+                              <span className="w-4 h-4 rounded-full bg-white animate-pulse"></span>
+                              <span className="text-lg">{gate.riskOn ? '🟢 RISK-ON' : '🟠 RISK-OFF'}</span>
+                            </div>
+                            <div className="text-right text-sm font-normal opacity-90">
+                              <div>{gate.benchmarkAbove50MA ? '✓ Above 50MA' : '✗ Below 50MA'}</div>
+                              <div>{gate.distributionDays || 0} distribution days</div>
+                            </div>
                           </div>
-                          <div className="text-right text-sm font-normal opacity-90">
-                            <div>{scanResults.regimeGate.benchmarkAbove50MA ? '✓ Above 50MA' : '✗ Below 50MA'}</div>
-                            <div>{scanResults.regimeGate.distributionDays || 0} distribution days</div>
-                          </div>
+                          {!gate.riskOn && (
+                            <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 bg-orange-700 text-white text-xs px-3 py-1 rounded-full shadow">
+                              ⚠️ Half size • Tighter filters
+                            </div>
+                          )}
                         </div>
-                        {!scanResults.regimeGate.riskOn && (
-                          <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 bg-orange-700 text-white text-xs px-3 py-1 rounded-full shadow">
-                            ⚠️ Half size • Tighter filters
-                          </div>
-                        )}
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     {/* Scan Info */}
                     <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2">
