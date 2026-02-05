@@ -169,11 +169,11 @@ export async function POST(request) {
       instruments,
       shortSellingAllowed,
       marketTrend,
-      // Regime Gate status - important for UI display
+      // Regime Gate status - per market and overall
       regimeGate: {
         riskOn: isRiskOn,
-        benchmarkAbove50MA: regimeGate.benchmarkAbove50MA,
-        distributionDays: regimeGate.distributionDays,
+        uk: regimeGate.uk || { riskOn: true, aboveMa50: true, distributionDays: 0 },
+        us: regimeGate.us || { riskOn: true, aboveMa50: true, distributionDays: 0 },
         positionSizeMultiplier
       },
       thresholds: {

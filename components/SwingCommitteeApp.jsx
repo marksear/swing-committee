@@ -339,33 +339,32 @@ export default function SwingCommitteeApp() {
       }
 
       // ========================================
-      // REGIME GATE - Single Yes/No for Aggressiveness
+      // REGIME GATE - Per-Market Risk Assessment
       // ========================================
       // Risk-On if: benchmark > rising 50DMA AND distribution days ≤ 4
       // Risk-Off: tighter filters, half position size, fewer trades
-      let regimeGate = { riskOn: true, benchmarkAbove50MA: true, ma50Rising: true, distributionDays: 0 };
 
-      if (marketPulseData) {
-        // Use S&P 500 as primary benchmark (most liquid)
-        // Fall back to FTSE if US data unavailable
-        const benchmark = marketPulseData.us || marketPulseData.uk;
+      // Calculate per-market regime gate
+      const calculateMarketRisk = (market) => {
+        if (!market) return { riskOn: true, aboveMa50: true, ma50Rising: true, distributionDays: 0 };
+        const aboveMa50 = market.aboveMa50 === true;
+        const ma50Rising = market.ma50Rising === true;
+        const distributionDays = market.distributionDays || 0;
+        const isRiskOn = aboveMa50 && ma50Rising && distributionDays <= 4;
+        return { riskOn: isRiskOn, aboveMa50, ma50Rising, distributionDays };
+      };
 
-        if (benchmark) {
-          const aboveMa50 = benchmark.aboveMa50 === true;
-          const ma50Rising = benchmark.ma50Rising === true;
-          const distributionDays = benchmark.distributionDays || 0;
+      const ukRisk = marketPulseData ? calculateMarketRisk(marketPulseData.uk) : { riskOn: true, aboveMa50: true, ma50Rising: true, distributionDays: 0 };
+      const usRisk = marketPulseData ? calculateMarketRisk(marketPulseData.us) : { riskOn: true, aboveMa50: true, ma50Rising: true, distributionDays: 0 };
 
-          // Risk-On requires BOTH: above rising 50MA AND ≤4 distribution days
-          const isRiskOn = aboveMa50 && ma50Rising && distributionDays <= 4;
+      // Overall regime gate - conservative: if EITHER market is Risk-Off, apply tighter filters
+      const overallRiskOn = ukRisk.riskOn && usRisk.riskOn;
 
-          regimeGate = {
-            riskOn: isRiskOn,
-            benchmarkAbove50MA: aboveMa50,
-            ma50Rising: ma50Rising,
-            distributionDays: distributionDays
-          };
-        }
-      }
+      const regimeGate = {
+        riskOn: overallRiskOn,
+        uk: ukRisk,
+        us: usRisk
+      };
 
       const response = await fetch('/api/scanner', {
         method: 'POST',
@@ -1088,28 +1087,40 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                   </div>
                 ) : scanResults ? (
                   <div className="space-y-4">
-                    {/* Regime Gate Status - PROMINENT BANNER - Always show with defaults if missing */}
+                    {/* Per-Market Regime Gate Status */}
                     {(() => {
-                      const gate = scanResults.regimeGate || { riskOn: true, benchmarkAbove50MA: true, distributionDays: 0 };
+                      const gate = scanResults.regimeGate || { riskOn: true, uk: { riskOn: true }, us: { riskOn: true } };
+                      const ukGate = gate.uk || { riskOn: true, aboveMa50: true, distributionDays: 0 };
+                      const usGate = gate.us || { riskOn: true, aboveMa50: true, distributionDays: 0 };
+                      const overallRiskOn = gate.riskOn;
+
                       return (
-                        <div className={`relative mb-2 ${!gate.riskOn ? 'pb-4' : ''}`}>
-                          <div className={`flex items-center justify-between px-4 py-3 rounded-xl text-base font-bold shadow-sm ${
-                            gate.riskOn
-                              ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white'
-                              : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white'
-                          }`}>
-                            <div className="flex items-center gap-3">
-                              <span className="w-4 h-4 rounded-full bg-white animate-pulse"></span>
-                              <span className="text-lg">{gate.riskOn ? '🟢 RISK-ON' : '🟠 RISK-OFF'}</span>
+                        <div className={`relative mb-2 ${!overallRiskOn ? 'pb-4' : ''}`}>
+                          {/* Two-column layout for UK and US */}
+                          <div className="grid grid-cols-2 gap-2 mb-2">
+                            {/* UK Market */}
+                            <div className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm font-bold ${
+                              ukGate.riskOn
+                                ? 'bg-green-500 text-white'
+                                : 'bg-amber-500 text-white'
+                            }`}>
+                              <span>🇬🇧 {ukGate.riskOn ? 'RISK-ON' : 'RISK-OFF'}</span>
+                              <span className="text-xs font-normal opacity-90">{ukGate.distributionDays || 0}d</span>
                             </div>
-                            <div className="text-right text-sm font-normal opacity-90">
-                              <div>{gate.benchmarkAbove50MA ? '✓ Above 50MA' : '✗ Below 50MA'}</div>
-                              <div>{gate.distributionDays || 0} distribution days</div>
+                            {/* US Market */}
+                            <div className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm font-bold ${
+                              usGate.riskOn
+                                ? 'bg-green-500 text-white'
+                                : 'bg-amber-500 text-white'
+                            }`}>
+                              <span>🇺🇸 {usGate.riskOn ? 'RISK-ON' : 'RISK-OFF'}</span>
+                              <span className="text-xs font-normal opacity-90">{usGate.distributionDays || 0}d</span>
                             </div>
                           </div>
-                          {!gate.riskOn && (
-                            <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 bg-orange-700 text-white text-xs px-3 py-1 rounded-full shadow">
-                              ⚠️ Half size • Tighter filters
+                          {/* Overall status banner */}
+                          {!overallRiskOn && (
+                            <div className="bg-orange-100 border border-orange-300 rounded-lg px-3 py-2 text-center text-orange-800 text-sm font-medium">
+                              ⚠️ RISK-OFF Mode: Half size • Longs need 80%+ score & 6 pillars
                             </div>
                           )}
                         </div>
