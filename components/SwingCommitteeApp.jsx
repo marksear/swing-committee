@@ -44,7 +44,7 @@ export default function SwingCommitteeApp() {
     // Permissions
     leverageAllowed: false,
     maxLeverage: '2',
-    shortSellingAllowed: false,
+    shortSellingAllowed: true,
     ukStocks: true,
     usStocks: true,
     indices: false,
@@ -119,17 +119,9 @@ export default function SwingCommitteeApp() {
         }
       }
 
-      // Load last analysis results (trade signals)
-      const savedAnalysis = localStorage.getItem('swingCommittee_lastAnalysis');
-      if (savedAnalysis) {
-        try {
-          const parsed = JSON.parse(savedAnalysis);
-          setAnalysisResult(parsed);
-          setAnalysisComplete(true);
-        } catch (e) {
-          console.error('Failed to parse saved analysis:', e);
-        }
-      }
+      // Note: We no longer auto-restore analysis results on load
+      // Users start fresh each session and can run new analysis
+      // Analysis results are still saved to localStorage for reference/debugging
     }
   }, []);
 
@@ -2102,16 +2094,6 @@ Format: Ticker, Notes (we'll fetch live prices)"
           </div>
         )}
 
-        {analysisComplete && (
-          <div className="mt-6 text-center">
-            <button
-              onClick={resetForNewAnalysis}
-              className="text-gray-500 hover:text-gray-700 text-sm"
-            >
-              ← Start New Analysis
-            </button>
-          </div>
-        )}
 
         {/* Footer */}
         <div className="text-center mt-8 text-sm text-gray-500">
