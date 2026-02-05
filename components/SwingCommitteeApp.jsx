@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 export default function SwingCommitteeApp() {
-  const [step, setStep] = useState(1);  // Skip welcome screen, go straight to Account Settings
+  const [step, setStep] = useState(0);  // Start at welcome screen with Market Pulse
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
@@ -64,14 +64,13 @@ export default function SwingCommitteeApp() {
     sessionType: 'daily',
   });
 
-  // Steps - Welcome (step 0) is hidden, we start at Account (step 1)
   const steps = [
-    { title: 'Welcome', icon: BookOpen, hidden: true },  // Step 0 - skipped
-    { title: 'Account', icon: DollarSign },              // Step 1
-    { title: 'Positions', icon: BarChart3 },             // Step 2
-    { title: 'Watchlist', icon: Eye },                   // Step 3
-    { title: 'Session', icon: Activity },                // Step 4
-    { title: 'Analysis', icon: Brain },                  // Step 5
+    { title: 'Welcome', icon: BookOpen },
+    { title: 'Account', icon: DollarSign },
+    { title: 'Positions', icon: BarChart3 },
+    { title: 'Watchlist', icon: Eye },
+    { title: 'Session', icon: Activity },
+    { title: 'Analysis', icon: Brain },
   ];
 
   // Fetch Market Pulse on component mount
@@ -158,7 +157,7 @@ export default function SwingCommitteeApp() {
   // Reset all analysis-related state for a fresh start
   const resetForNewAnalysis = () => {
     // Reset analysis state
-    setStep(1);  // Skip welcome screen, go to Account Settings
+    setStep(0);  // Go back to welcome screen
     setAnalysisComplete(false);
     setAnalysisResult(null);
     setAnalysisError(null);
@@ -687,6 +686,15 @@ export default function SwingCommitteeApp() {
                             {marketPulseData.uk.distributionDays} dist days
                           </span>
                         )}
+                        {/* Per-market RISK-ON/OFF indicator */}
+                        {(() => {
+                          const isRiskOn = marketPulseData.uk.aboveMa50 && marketPulseData.uk.ma50Rising && (marketPulseData.uk.distributionDays || 0) <= 4;
+                          return (
+                            <span className={`px-2 py-0.5 rounded font-bold ${isRiskOn ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}`}>
+                              {isRiskOn ? '🟢 RISK-ON' : '🟠 RISK-OFF'}
+                            </span>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>
@@ -752,6 +760,15 @@ export default function SwingCommitteeApp() {
                             {marketPulseData.us.distributionDays} dist days
                           </span>
                         )}
+                        {/* Per-market RISK-ON/OFF indicator */}
+                        {(() => {
+                          const isRiskOn = marketPulseData.us.aboveMa50 && marketPulseData.us.ma50Rising && (marketPulseData.us.distributionDays || 0) <= 4;
+                          return (
+                            <span className={`px-2 py-0.5 rounded font-bold ${isRiskOn ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}`}>
+                              {isRiskOn ? '🟢 RISK-ON' : '🟠 RISK-OFF'}
+                            </span>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>
@@ -772,48 +789,6 @@ export default function SwingCommitteeApp() {
       case 1:
         return (
           <div className="space-y-6">
-            {/* Compact Market Pulse Header */}
-            <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-xl p-4 text-white">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
-                    <BarChart2 className="w-5 h-5" />
-                  </div>
-                  <span className="font-bold">Market Pulse</span>
-                </div>
-                <div className="flex items-center gap-4 text-sm">
-                  {marketPulseData ? (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <span>🇬🇧</span>
-                        <span className={marketPulseData.uk?.aboveMa50 ? 'text-green-400' : 'text-red-400'}>
-                          {marketPulseData.uk?.regime || 'Loading'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span>🇺🇸</span>
-                        <span className={marketPulseData.us?.aboveMa50 ? 'text-green-400' : 'text-red-400'}>
-                          {marketPulseData.us?.regime || 'Loading'}
-                        </span>
-                      </div>
-                      {/* Regime Gate Quick Status */}
-                      {(() => {
-                        const benchmark = marketPulseData.us || marketPulseData.uk;
-                        const isRiskOn = benchmark?.aboveMa50 && benchmark?.ma50Rising && (benchmark?.distributionDays || 0) <= 4;
-                        return (
-                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${isRiskOn ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'}`}>
-                            {isRiskOn ? '🟢 RISK-ON' : '🟠 RISK-OFF'}
-                          </span>
-                        );
-                      })()}
-                    </>
-                  ) : (
-                    <span className="text-gray-400">Loading market data...</span>
-                  )}
-                </div>
-              </div>
-            </div>
-
             <h2 className="text-2xl font-bold text-gray-900">Account Settings</h2>
             <p className="text-gray-600">Configure your risk parameters</p>
 
@@ -2051,7 +2026,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
     <div className="min-h-screen bg-gray-100 p-4">
       <div className={`mx-auto ${analysisComplete ? 'max-w-4xl' : 'max-w-2xl'}`}>
         {/* Progress Steps - Show for Account through Session (steps 1-4) */}
-        {step >= 1 && step < 5 && (
+        {step > 0 && step < 5 && (
           <div className="flex items-center justify-between mb-8">
             {steps.slice(1, 5).map((s, i) => (
               <React.Fragment key={s.title}>
@@ -2085,7 +2060,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
         {/* Navigation */}
         {!isAnalyzing && !analysisComplete && (
           <div className="flex justify-between mt-6">
-            {step > 1 ? (
+            {step > 0 ? (
               <button
                 onClick={() => setStep(step - 1)}
                 className="flex items-center gap-2 px-6 py-3 text-gray-600 hover:text-gray-900"
@@ -2109,7 +2084,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                 }}
                 className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800"
               >
-                {step === 4 ? 'Run Analysis' : 'Continue'}
+                {step === 0 ? 'Get Started' : step === 4 ? 'Run Analysis' : 'Continue'}
                 <ChevronRight className="w-5 h-5" />
               </button>
             )}
