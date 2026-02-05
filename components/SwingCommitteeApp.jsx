@@ -98,7 +98,42 @@ export default function SwingCommitteeApp() {
 
   useEffect(() => {
     fetchMarketPulse();
+
+    // Load persisted data from localStorage
+    if (typeof window !== 'undefined') {
+      // Load watchlist
+      const savedWatchlist = localStorage.getItem('swingCommittee_watchlist');
+      if (savedWatchlist) {
+        setFormData(prev => ({ ...prev, watchlist: savedWatchlist }));
+      }
+
+      // Load last scan results
+      const savedScanResults = localStorage.getItem('swingCommittee_lastScan');
+      if (savedScanResults) {
+        try {
+          const parsed = JSON.parse(savedScanResults);
+          setScanResults(parsed);
+          setShowScanner(true); // Show the scanner panel if we have saved results
+        } catch (e) {
+          console.error('Failed to parse saved scan results:', e);
+        }
+      }
+    }
   }, []);
+
+  // Persist watchlist to localStorage whenever it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined' && formData.watchlist !== undefined) {
+      localStorage.setItem('swingCommittee_watchlist', formData.watchlist);
+    }
+  }, [formData.watchlist]);
+
+  // Persist scan results to localStorage whenever they change
+  useEffect(() => {
+    if (typeof window !== 'undefined' && scanResults) {
+      localStorage.setItem('swingCommittee_lastScan', JSON.stringify(scanResults));
+    }
+  }, [scanResults]);
 
   // Reset all analysis-related state for a fresh start
   const resetForNewAnalysis = () => {
