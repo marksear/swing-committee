@@ -118,6 +118,18 @@ export default function SwingCommitteeApp() {
           console.error('Failed to parse saved scan results:', e);
         }
       }
+
+      // Load last analysis results (trade signals)
+      const savedAnalysis = localStorage.getItem('swingCommittee_lastAnalysis');
+      if (savedAnalysis) {
+        try {
+          const parsed = JSON.parse(savedAnalysis);
+          setAnalysisResult(parsed);
+          setAnalysisComplete(true);
+        } catch (e) {
+          console.error('Failed to parse saved analysis:', e);
+        }
+      }
     }
   }, []);
 
@@ -134,6 +146,13 @@ export default function SwingCommitteeApp() {
       localStorage.setItem('swingCommittee_lastScan', JSON.stringify(scanResults));
     }
   }, [scanResults]);
+
+  // Persist analysis results (trade signals) to localStorage whenever they change
+  useEffect(() => {
+    if (typeof window !== 'undefined' && analysisResult) {
+      localStorage.setItem('swingCommittee_lastAnalysis', JSON.stringify(analysisResult));
+    }
+  }, [analysisResult]);
 
   // Reset all analysis-related state for a fresh start
   const resetForNewAnalysis = () => {
@@ -300,6 +319,7 @@ export default function SwingCommitteeApp() {
   const runScanner = async () => {
     setIsScanning(true);
     setScanError(null);
+    setScanResults(null); // Clear previous results
     setShowScanner(true);
 
     try {
@@ -339,6 +359,14 @@ export default function SwingCommitteeApp() {
 
       const data = await response.json();
       setScanResults(data);
+
+      // Save to Google Sheets (fire and forget - don't block UI)
+      fetch('/api/sheets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'saveScanResults', data })
+      }).catch(err => console.log('Sheets save skipped:', err.message));
+
     } catch (error) {
       setScanError(error.message);
     } finally {
@@ -397,6 +425,13 @@ export default function SwingCommitteeApp() {
       const result = await response.json();
       setAnalysisResult(result);
       setCurrentAnalysisStep(analysisSteps.length - 1);
+
+      // Save trade signals to Google Sheets (fire and forget)
+      fetch('/api/sheets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'saveTradeSignals', data: result })
+      }).catch(err => console.log('Sheets save skipped:', err.message));
 
       setTimeout(() => {
         setIsAnalyzing(false);
