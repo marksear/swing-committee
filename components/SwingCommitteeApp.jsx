@@ -360,12 +360,18 @@ export default function SwingCommitteeApp() {
       const data = await response.json();
       setScanResults(data);
 
-      // Save to Google Sheets (fire and forget - don't block UI)
-      fetch('/api/sheets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'saveScanResults', data })
-      }).catch(err => console.log('Sheets save skipped:', err.message));
+      // Save to Google Sheets
+      try {
+        const sheetsResponse = await fetch('/api/sheets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'saveScanResults', data })
+        });
+        const sheetsResult = await sheetsResponse.json();
+        console.log('Scan results saved to sheets:', sheetsResult);
+      } catch (err) {
+        console.log('Sheets save skipped:', err.message);
+      }
 
     } catch (error) {
       setScanError(error.message);
