@@ -35,12 +35,21 @@ async function fetchMarketData(symbol, market) {
 
     // Calculate technical indicators
     const prices = chartData.prices || []
+    const volumes = chartData.volumes || []
     const ma50 = calculateMA(prices, 50)
     const ma200 = calculateMA(prices, 200)
     const currentPrice = quoteData.price
     const previousClose = quoteData.previousClose
     const change = currentPrice - previousClose
     const changePercent = ((change / previousClose) * 100).toFixed(2)
+
+    // Calculate if 50MA is rising (comparing current 50MA to 10 days ago)
+    const ma50TenDaysAgo = prices.length >= 60 ? calculateMA(prices.slice(0, -10), 50) : null
+    const ma50Rising = ma50 && ma50TenDaysAgo ? ma50 > ma50TenDaysAgo : null
+
+    // Count distribution days in last 25 trading sessions
+    // Distribution day = index down 0.2%+ on higher volume than previous day
+    const distributionDays = countDistributionDays(prices, volumes)
 
     // Determine regime based on price vs MAs and trend
     const regime = determineRegime(currentPrice, ma50, ma200, prices)
@@ -64,6 +73,8 @@ async function fetchMarketData(symbol, market) {
       regime,
       aboveMa50: currentPrice > ma50,
       aboveMa200: currentPrice > ma200,
+      ma50Rising,             // For Regime Gate: is 50MA rising?
+      distributionDays,       // For Regime Gate: count of distribution days
       marketState: quoteData.marketState
     }
   } catch (error) {
@@ -110,9 +121,40 @@ async function fetchYahooChart(symbol, range) {
   if (!result) return null
 
   const closes = result.indicators?.quote?.[0]?.close || []
+  const volumes = result.indicators?.quote?.[0]?.volume || []
   return {
-    prices: closes.filter(p => p !== null)
+    prices: closes.filter(p => p !== null),
+    volumes: volumes.filter(v => v !== null)
   }
+}
+
+/**
+ * Count distribution days in the last 25 trading sessions
+ * Distribution day = index down 0.2%+ on higher volume than previous day
+ * Classic IBD methodology for measuring institutional selling pressure
+ */
+function countDistributionDays(prices, volumes) {
+  if (prices.length < 26 || volumes.length < 26) return 0
+
+  let count = 0
+  // Check last 25 days (indices -25 to -1)
+  for (let i = prices.length - 25; i < prices.length; i++) {
+    const todayClose = prices[i]
+    const yesterdayClose = prices[i - 1]
+    const todayVolume = volumes[i]
+    const yesterdayVolume = volumes[i - 1]
+
+    if (!todayClose || !yesterdayClose || !todayVolume || !yesterdayVolume) continue
+
+    const percentChange = ((todayClose - yesterdayClose) / yesterdayClose) * 100
+
+    // Distribution day: down 0.2%+ on higher volume
+    if (percentChange <= -0.2 && todayVolume > yesterdayVolume) {
+      count++
+    }
+  }
+
+  return count
 }
 
 function calculateMA(prices, period) {
@@ -245,6 +287,8 @@ function getDefaultMarketData(market) {
     regime: 'Unknown',
     aboveMa50: null,
     aboveMa200: null,
+    ma50Rising: null,
+    distributionDays: 0,
     marketState: 'CLOSED',
     error: true
   }

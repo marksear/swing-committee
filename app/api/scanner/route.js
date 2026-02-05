@@ -70,11 +70,14 @@ export async function POST(request) {
       marketTrend = 'neutral',
       shortSellingAllowed = true,
       // Instrument filters - default to US and UK stocks for backwards compatibility
-      instruments = { ukStocks: true, usStocks: true, indices: false, forex: false, crypto: false }
+      instruments = { ukStocks: true, usStocks: true, indices: false, forex: false, crypto: false },
+      // Regime Gate data - benchmark status and distribution days
+      regimeGate = { riskOn: true, benchmarkAbove50MA: true, distributionDays: 0 }
     } = await request.json()
 
     console.log(`Starting scan for mode: ${mode}, trend: ${marketTrend}, shorts: ${shortSellingAllowed}`)
     console.log(`Instruments:`, instruments)
+    console.log(`Regime Gate: riskOn=${regimeGate.riskOn}, benchmark>${regimeGate.benchmarkAbove50MA ? 'rising' : 'falling'} 50MA, dist days=${regimeGate.distributionDays}`)
 
     // Build list of tickers to scan based on instrument preferences
     let tickersToScan = []
@@ -99,27 +102,43 @@ export async function POST(request) {
       .filter(r => r && !r.error && r.score !== null)
       .sort((a, b) => b.score - a.score)
 
-    // Determine thresholds based on market trend
-    // When trending up: lower bar for longs, higher bar for shorts
-    // When trending down: higher bar for longs, lower bar for shorts
-    let longScoreThreshold, shortScoreThreshold, longPillarMin, shortPillarMin
+    // ========================================
+    // REGIME GATE - Single Yes/No for Aggressiveness
+    // ========================================
+    // Risk-On: Benchmark > rising 50DMA AND distribution days ≤ 4
+    // Risk-Off: Tighten filters, raise thresholds, suggest smaller positions
+    const isRiskOn = regimeGate.riskOn
 
-    if (marketTrend === 'up') {
-      longScoreThreshold = 70
-      shortScoreThreshold = 75
-      longPillarMin = 5
-      shortPillarMin = 5
-    } else if (marketTrend === 'down') {
-      longScoreThreshold = 75
-      shortScoreThreshold = 70
-      longPillarMin = 5
-      shortPillarMin = 5
+    // Base thresholds adjusted by Regime Gate
+    let longScoreThreshold, shortScoreThreshold, longPillarMin, shortPillarMin
+    let positionSizeMultiplier = 1.0  // 1.0 = full size, 0.5 = half size
+
+    if (isRiskOn) {
+      // RISK-ON: Standard thresholds, trend-adjusted
+      if (marketTrend === 'up') {
+        longScoreThreshold = 70
+        shortScoreThreshold = 75
+        longPillarMin = 5
+        shortPillarMin = 5
+      } else if (marketTrend === 'down') {
+        longScoreThreshold = 75
+        shortScoreThreshold = 70
+        longPillarMin = 5
+        shortPillarMin = 5
+      } else {
+        longScoreThreshold = 70
+        shortScoreThreshold = 70
+        longPillarMin = 5
+        shortPillarMin = 5
+      }
+      positionSizeMultiplier = 1.0
     } else {
-      // Neutral - equal thresholds
-      longScoreThreshold = 70
-      shortScoreThreshold = 70
-      longPillarMin = 5
-      shortPillarMin = 5
+      // RISK-OFF: Tighter thresholds, fewer trades, half position size
+      longScoreThreshold = 80      // Raise from 70/75 to 80
+      shortScoreThreshold = 75     // Keep shorts at 75
+      longPillarMin = 6            // Require ALL 6 pillars for longs
+      shortPillarMin = 5           // Keep shorts at 5
+      positionSizeMultiplier = 0.5 // Half position size
     }
 
     // Count passing pillars for each result
@@ -150,6 +169,13 @@ export async function POST(request) {
       instruments,
       shortSellingAllowed,
       marketTrend,
+      // Regime Gate status - important for UI display
+      regimeGate: {
+        riskOn: isRiskOn,
+        benchmarkAbove50MA: regimeGate.benchmarkAbove50MA,
+        distributionDays: regimeGate.distributionDays,
+        positionSizeMultiplier
+      },
       thresholds: {
         long: { score: longScoreThreshold, pillars: longPillarMin },
         short: { score: shortScoreThreshold, pillars: shortPillarMin }

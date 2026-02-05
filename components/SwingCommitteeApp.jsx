@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 
 export default function SwingCommitteeApp() {
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(1);  // Skip welcome screen, go straight to Account Settings
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
@@ -64,13 +64,14 @@ export default function SwingCommitteeApp() {
     sessionType: 'daily',
   });
 
+  // Steps - Welcome (step 0) is hidden, we start at Account (step 1)
   const steps = [
-    { title: 'Welcome', icon: BookOpen },
-    { title: 'Account', icon: DollarSign },
-    { title: 'Positions', icon: BarChart3 },
-    { title: 'Watchlist', icon: Eye },
-    { title: 'Session', icon: Activity },
-    { title: 'Analysis', icon: Brain },
+    { title: 'Welcome', icon: BookOpen, hidden: true },  // Step 0 - skipped
+    { title: 'Account', icon: DollarSign },              // Step 1
+    { title: 'Positions', icon: BarChart3 },             // Step 2
+    { title: 'Watchlist', icon: Eye },                   // Step 3
+    { title: 'Session', icon: Activity },                // Step 4
+    { title: 'Analysis', icon: Brain },                  // Step 5
   ];
 
   // Fetch Market Pulse on component mount
@@ -157,7 +158,7 @@ export default function SwingCommitteeApp() {
   // Reset all analysis-related state for a fresh start
   const resetForNewAnalysis = () => {
     // Reset analysis state
-    setStep(0);
+    setStep(1);  // Skip welcome screen, go to Account Settings
     setAnalysisComplete(false);
     setAnalysisResult(null);
     setAnalysisError(null);
@@ -338,6 +339,35 @@ export default function SwingCommitteeApp() {
         if ((usUp && ukDown) || (usDown && ukUp)) marketTrend = 'neutral';
       }
 
+      // ========================================
+      // REGIME GATE - Single Yes/No for Aggressiveness
+      // ========================================
+      // Risk-On if: benchmark > rising 50DMA AND distribution days ≤ 4
+      // Risk-Off: tighter filters, half position size, fewer trades
+      let regimeGate = { riskOn: true, benchmarkAbove50MA: true, ma50Rising: true, distributionDays: 0 };
+
+      if (marketPulseData) {
+        // Use S&P 500 as primary benchmark (most liquid)
+        // Fall back to FTSE if US data unavailable
+        const benchmark = marketPulseData.us || marketPulseData.uk;
+
+        if (benchmark) {
+          const aboveMa50 = benchmark.aboveMa50 === true;
+          const ma50Rising = benchmark.ma50Rising === true;
+          const distributionDays = benchmark.distributionDays || 0;
+
+          // Risk-On requires BOTH: above rising 50MA AND ≤4 distribution days
+          const isRiskOn = aboveMa50 && ma50Rising && distributionDays <= 4;
+
+          regimeGate = {
+            riskOn: isRiskOn,
+            benchmarkAbove50MA: aboveMa50,
+            ma50Rising: ma50Rising,
+            distributionDays: distributionDays
+          };
+        }
+      }
+
       const response = await fetch('/api/scanner', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -345,6 +375,7 @@ export default function SwingCommitteeApp() {
           mode: formData.tradeMode === 'position' ? 'position' : 'short_term',
           marketTrend,
           shortSellingAllowed: formData.shortSellingAllowed,
+          regimeGate,
           instruments: {
             ukStocks: formData.ukStocks,
             usStocks: formData.usStocks,
@@ -641,13 +672,21 @@ export default function SwingCommitteeApp() {
                       <span>Bullish</span>
                     </div>
                     {marketPulseData.uk.aboveMa50 !== null && (
-                      <div className="flex gap-2 mt-3 text-xs">
+                      <div className="flex flex-wrap gap-2 mt-3 text-xs">
                         <span className={`px-2 py-0.5 rounded ${marketPulseData.uk.aboveMa50 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                           {marketPulseData.uk.aboveMa50 ? '↑' : '↓'} 50MA
+                          {marketPulseData.uk.ma50Rising !== null && (
+                            <span className="ml-1 opacity-75">{marketPulseData.uk.ma50Rising ? '(rising)' : '(falling)'}</span>
+                          )}
                         </span>
                         <span className={`px-2 py-0.5 rounded ${marketPulseData.uk.aboveMa200 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                           {marketPulseData.uk.aboveMa200 ? '↑' : '↓'} 200MA
                         </span>
+                        {marketPulseData.uk.distributionDays !== undefined && (
+                          <span className={`px-2 py-0.5 rounded ${marketPulseData.uk.distributionDays <= 4 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {marketPulseData.uk.distributionDays} dist days
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -698,13 +737,21 @@ export default function SwingCommitteeApp() {
                       <span>Bullish</span>
                     </div>
                     {marketPulseData.us.aboveMa50 !== null && (
-                      <div className="flex gap-2 mt-3 text-xs">
+                      <div className="flex flex-wrap gap-2 mt-3 text-xs">
                         <span className={`px-2 py-0.5 rounded ${marketPulseData.us.aboveMa50 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                           {marketPulseData.us.aboveMa50 ? '↑' : '↓'} 50MA
+                          {marketPulseData.us.ma50Rising !== null && (
+                            <span className="ml-1 opacity-75">{marketPulseData.us.ma50Rising ? '(rising)' : '(falling)'}</span>
+                          )}
                         </span>
                         <span className={`px-2 py-0.5 rounded ${marketPulseData.us.aboveMa200 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                           {marketPulseData.us.aboveMa200 ? '↑' : '↓'} 200MA
                         </span>
+                        {marketPulseData.us.distributionDays !== undefined && (
+                          <span className={`px-2 py-0.5 rounded ${marketPulseData.us.distributionDays <= 4 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {marketPulseData.us.distributionDays} dist days
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1024,6 +1071,31 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                   </div>
                 ) : scanResults ? (
                   <div className="space-y-4">
+                    {/* Regime Gate Status - PROMINENT BANNER */}
+                    {scanResults.regimeGate && (
+                      <div className={`relative mb-2 ${!scanResults.regimeGate.riskOn ? 'pb-4' : ''}`}>
+                        <div className={`flex items-center justify-between px-4 py-3 rounded-xl text-base font-bold shadow-sm ${
+                          scanResults.regimeGate.riskOn
+                            ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white'
+                            : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white'
+                        }`}>
+                          <div className="flex items-center gap-3">
+                            <span className="w-4 h-4 rounded-full bg-white animate-pulse"></span>
+                            <span className="text-lg">{scanResults.regimeGate.riskOn ? '🟢 RISK-ON' : '🟠 RISK-OFF'}</span>
+                          </div>
+                          <div className="text-right text-sm font-normal opacity-90">
+                            <div>{scanResults.regimeGate.benchmarkAbove50MA ? '✓ Above 50MA' : '✗ Below 50MA'}</div>
+                            <div>{scanResults.regimeGate.distributionDays || 0} distribution days</div>
+                          </div>
+                        </div>
+                        {!scanResults.regimeGate.riskOn && (
+                          <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 bg-orange-700 text-white text-xs px-3 py-1 rounded-full shadow">
+                            ⚠️ Half size • Tighter filters
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Scan Info */}
                     <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2">
                       <span>Trend: <span className={scanResults.marketTrend === 'up' ? 'text-green-600 font-medium' : scanResults.marketTrend === 'down' ? 'text-red-600 font-medium' : 'text-gray-600'}>{scanResults.marketTrend || 'neutral'}</span></span>
@@ -1033,6 +1105,12 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                         <>
                           <span>•</span>
                           <span>Shorts ≥{scanResults.thresholds?.short?.score}%</span>
+                        </>
+                      )}
+                      {scanResults.regimeGate?.positionSizeMultiplier && scanResults.regimeGate.positionSizeMultiplier < 1 && (
+                        <>
+                          <span>•</span>
+                          <span className="text-amber-600">Size: {(scanResults.regimeGate.positionSizeMultiplier * 100).toFixed(0)}%</span>
                         </>
                       )}
                     </div>
@@ -1732,6 +1810,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                     <div>
                       {analysisResult.signals
                         .filter(signal => !isNoTrade(signal))
+                        .filter(signal => signal.ticker && !signal.ticker.includes('REQUEST') && !signal.ticker.includes('NEEDED') && !signal.ticker.includes('TBD'))
                         .map((signal, index) => (
                         <div key={index} className="border-b border-gray-100 last:border-b-0">
                           <button
@@ -1926,8 +2005,8 @@ Format: Ticker, Notes (we'll fetch live prices)"
   return (
     <div className="min-h-screen bg-gray-100 p-4">
       <div className={`mx-auto ${analysisComplete ? 'max-w-4xl' : 'max-w-2xl'}`}>
-        {/* Progress Steps */}
-        {step > 0 && step < 5 && (
+        {/* Progress Steps - Show for Account through Session (steps 1-4) */}
+        {step >= 1 && step < 5 && (
           <div className="flex items-center justify-between mb-8">
             {steps.slice(1, 5).map((s, i) => (
               <React.Fragment key={s.title}>
@@ -1961,7 +2040,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
         {/* Navigation */}
         {!isAnalyzing && !analysisComplete && (
           <div className="flex justify-between mt-6">
-            {step > 0 ? (
+            {step > 1 ? (
               <button
                 onClick={() => setStep(step - 1)}
                 className="flex items-center gap-2 px-6 py-3 text-gray-600 hover:text-gray-900"
@@ -1985,7 +2064,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                 }}
                 className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800"
               >
-                {step === 0 ? 'Get Started' : step === 4 ? 'Run Analysis' : 'Continue'}
+                {step === 4 ? 'Run Analysis' : 'Continue'}
                 <ChevronRight className="w-5 h-5" />
               </button>
             )}
