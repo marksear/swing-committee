@@ -1,10 +1,10 @@
 // Stock Scanner API - Uses Yahoo Finance data to find swing trade candidates
 // Applies the Six Pillars methodology for ranking
 
-// Universe of stocks to scan
+// Universe of instruments to scan
 const UNIVERSE = {
   // Top 50 S&P 500 by market cap + liquid names
-  US: [
+  usStocks: [
     'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK-B', 'UNH', 'JNJ',
     'V', 'XOM', 'JPM', 'PG', 'MA', 'HD', 'CVX', 'MRK', 'ABBV', 'PEP',
     'KO', 'COST', 'AVGO', 'LLY', 'WMT', 'MCD', 'CSCO', 'ACN', 'TMO', 'ABT',
@@ -12,15 +12,48 @@ const UNIVERSE = {
     'TXN', 'PM', 'UNP', 'NEE', 'RTX', 'HON', 'LOW', 'BA', 'SPGI', 'CAT'
   ],
   // FTSE 100 most liquid names
-  UK: [
+  ukStocks: [
     'SHEL.L', 'AZN.L', 'HSBA.L', 'ULVR.L', 'BP.L', 'GSK.L', 'RIO.L', 'REL.L', 'DGE.L', 'BATS.L',
     'LSEG.L', 'NG.L', 'AAL.L', 'GLEN.L', 'VOD.L', 'BHP.L', 'PRU.L', 'LLOY.L', 'BARC.L', 'RKT.L',
     'IMB.L', 'SSE.L', 'AHT.L', 'BA.L', 'CPG.L', 'EXPN.L', 'STAN.L', 'ABF.L', 'ANTO.L', 'CRH.L',
     'FERG.L', 'IAG.L', 'IHG.L', 'KGF.L', 'LAND.L', 'LGEN.L', 'MNG.L', 'NWG.L', 'PSON.L', 'RR.L',
     'SBRY.L', 'SGE.L', 'SMDS.L', 'SMT.L', 'SN.L', 'SPX.L', 'SVT.L', 'TSCO.L', 'WPP.L', 'WTB.L'
   ],
-  // Key commodities
-  COMMODITIES: [
+  // Major indices
+  indices: [
+    '^GSPC',   // S&P 500
+    '^DJI',    // Dow Jones
+    '^IXIC',   // NASDAQ Composite
+    '^FTSE',   // FTSE 100
+    '^GDAXI',  // DAX
+    '^FCHI',   // CAC 40
+    '^N225',   // Nikkei 225
+    '^HSI',    // Hang Seng
+  ],
+  // Major forex pairs
+  forex: [
+    'GBPUSD=X',  // GBP/USD
+    'EURUSD=X',  // EUR/USD
+    'USDJPY=X',  // USD/JPY
+    'AUDUSD=X',  // AUD/USD
+    'USDCAD=X',  // USD/CAD
+    'USDCHF=X',  // USD/CHF
+    'EURGBP=X',  // EUR/GBP
+    'GBPJPY=X',  // GBP/JPY
+  ],
+  // Major cryptocurrencies
+  crypto: [
+    'BTC-USD',   // Bitcoin
+    'ETH-USD',   // Ethereum
+    'BNB-USD',   // Binance Coin
+    'XRP-USD',   // Ripple
+    'SOL-USD',   // Solana
+    'ADA-USD',   // Cardano
+    'DOGE-USD',  // Dogecoin
+    'AVAX-USD',  // Avalanche
+  ],
+  // Key commodities (legacy, mapped to indices for now)
+  commodities: [
     'GC=F',  // Gold
     'SI=F',  // Silver
     'CL=F',  // WTI Crude Oil
@@ -32,15 +65,29 @@ const UNIVERSE = {
 
 export async function POST(request) {
   try {
-    const { mode = 'short_term', markets = ['US', 'UK'], marketTrend = 'neutral' } = await request.json()
+    const {
+      mode = 'short_term',
+      marketTrend = 'neutral',
+      shortSellingAllowed = true,
+      // Instrument filters - default to US and UK stocks for backwards compatibility
+      instruments = { ukStocks: true, usStocks: true, indices: false, forex: false, crypto: false }
+    } = await request.json()
 
-    console.log(`Starting scan for mode: ${mode}, markets: ${markets.join(', ')}, trend: ${marketTrend}`)
+    console.log(`Starting scan for mode: ${mode}, trend: ${marketTrend}, shorts: ${shortSellingAllowed}`)
+    console.log(`Instruments:`, instruments)
 
-    // Build list of tickers to scan
+    // Build list of tickers to scan based on instrument preferences
     let tickersToScan = []
-    if (markets.includes('US')) tickersToScan = tickersToScan.concat(UNIVERSE.US)
-    if (markets.includes('UK')) tickersToScan = tickersToScan.concat(UNIVERSE.UK)
-    if (markets.includes('COMMODITIES')) tickersToScan = tickersToScan.concat(UNIVERSE.COMMODITIES)
+    if (instruments.usStocks) tickersToScan = tickersToScan.concat(UNIVERSE.usStocks)
+    if (instruments.ukStocks) tickersToScan = tickersToScan.concat(UNIVERSE.ukStocks)
+    if (instruments.indices) tickersToScan = tickersToScan.concat(UNIVERSE.indices)
+    if (instruments.forex) tickersToScan = tickersToScan.concat(UNIVERSE.forex)
+    if (instruments.crypto) tickersToScan = tickersToScan.concat(UNIVERSE.crypto)
+
+    // If nothing selected, default to US + UK stocks
+    if (tickersToScan.length === 0) {
+      tickersToScan = [...UNIVERSE.usStocks, ...UNIVERSE.ukStocks]
+    }
 
     // Fetch historical data for all tickers
     const scanResults = await Promise.all(
@@ -85,9 +132,12 @@ export async function POST(request) {
       .filter(r => r.score >= longScoreThreshold && countPassingPillars(r) >= longPillarMin)
 
     // Filter shorts: score threshold + minimum pillars bearish
-    const shortCandidates = validResults
-      .filter(r => r.direction === 'SHORT')
-      .filter(r => r.score >= shortScoreThreshold && countBearishPillars(r) >= shortPillarMin)
+    // Only include shorts if short selling is allowed
+    const shortCandidates = shortSellingAllowed
+      ? validResults
+          .filter(r => r.direction === 'SHORT')
+          .filter(r => r.score >= shortScoreThreshold && countBearishPillars(r) >= shortPillarMin)
+      : []
 
     // Watchlist: lower threshold, for monitoring
     const watchlistCandidates = validResults
@@ -97,7 +147,8 @@ export async function POST(request) {
     return Response.json({
       timestamp: new Date().toISOString(),
       mode,
-      markets,
+      instruments,
+      shortSellingAllowed,
       marketTrend,
       thresholds: {
         long: { score: longScoreThreshold, pillars: longPillarMin },

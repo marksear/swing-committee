@@ -288,8 +288,15 @@ export default function SwingCommitteeApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: formData.tradeMode === 'position' ? 'position' : 'short_term',
-          markets: ['US', 'UK'],
-          marketTrend
+          marketTrend,
+          shortSellingAllowed: formData.shortSellingAllowed,
+          instruments: {
+            ukStocks: formData.ukStocks,
+            usStocks: formData.usStocks,
+            indices: formData.indices,
+            forex: formData.forex,
+            crypto: formData.crypto
+          }
         })
       });
 
@@ -941,13 +948,17 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                   </div>
                 ) : scanResults ? (
                   <div className="space-y-4">
-                    {/* Trend & Threshold Info */}
-                    <div className="text-xs text-gray-500 flex items-center gap-2">
-                      <span>Market trend: <span className={scanResults.marketTrend === 'up' ? 'text-green-600 font-medium' : scanResults.marketTrend === 'down' ? 'text-red-600 font-medium' : 'text-gray-600'}>{scanResults.marketTrend || 'neutral'}</span></span>
+                    {/* Scan Info */}
+                    <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2">
+                      <span>Trend: <span className={scanResults.marketTrend === 'up' ? 'text-green-600 font-medium' : scanResults.marketTrend === 'down' ? 'text-red-600 font-medium' : 'text-gray-600'}>{scanResults.marketTrend || 'neutral'}</span></span>
                       <span>•</span>
-                      <span>Longs ≥{scanResults.thresholds?.long?.score}% + {scanResults.thresholds?.long?.pillars}+ pillars</span>
-                      <span>•</span>
-                      <span>Shorts ≥{scanResults.thresholds?.short?.score}% + {scanResults.thresholds?.short?.pillars}+ pillars</span>
+                      <span>Longs ≥{scanResults.thresholds?.long?.score}%</span>
+                      {scanResults.shortSellingAllowed && (
+                        <>
+                          <span>•</span>
+                          <span>Shorts ≥{scanResults.thresholds?.short?.score}%</span>
+                        </>
+                      )}
                     </div>
 
                     {/* Long Candidates */}
@@ -992,46 +1003,48 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                       </div>
                     )}
 
-                    {/* Short Candidates */}
-                    {scanResults.results.short.length > 0 ? (
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-medium text-red-800 flex items-center gap-2">
-                            <TrendingDown className="w-4 h-4" />
-                            Short Candidates ({scanResults.results.short.length})
-                          </h4>
-                          <button
-                            onClick={() => addScanResultsToWatchlist(scanResults.results.short, 'Scanner Shorts')}
-                            className="text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700"
-                          >
-                            Add All to Watchlist
-                          </button>
-                        </div>
-                        <div className="grid gap-2 max-h-48 overflow-y-auto">
-                          {scanResults.results.short.map((stock, i) => (
-                            <div key={stock.ticker} className="bg-white border border-red-200 rounded-lg p-2 flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <span className="w-6 h-6 bg-red-100 text-red-700 rounded-full flex items-center justify-center text-xs font-bold">
-                                  {i + 1}
-                                </span>
-                                <div>
-                                  <p className="font-bold text-gray-900">{stock.ticker}</p>
-                                  <p className="text-xs text-gray-500 truncate max-w-[200px]">{stock.reasoning}</p>
+                    {/* Short Candidates - only show if short selling is allowed */}
+                    {scanResults.shortSellingAllowed && (
+                      scanResults.results.short.length > 0 ? (
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-medium text-red-800 flex items-center gap-2">
+                              <TrendingDown className="w-4 h-4" />
+                              Short Candidates ({scanResults.results.short.length})
+                            </h4>
+                            <button
+                              onClick={() => addScanResultsToWatchlist(scanResults.results.short, 'Scanner Shorts')}
+                              className="text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700"
+                            >
+                              Add All to Watchlist
+                            </button>
+                          </div>
+                          <div className="grid gap-2 max-h-48 overflow-y-auto">
+                            {scanResults.results.short.map((stock, i) => (
+                              <div key={stock.ticker} className="bg-white border border-red-200 rounded-lg p-2 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <span className="w-6 h-6 bg-red-100 text-red-700 rounded-full flex items-center justify-center text-xs font-bold">
+                                    {i + 1}
+                                  </span>
+                                  <div>
+                                    <p className="font-bold text-gray-900">{stock.ticker}</p>
+                                    <p className="text-xs text-gray-500 truncate max-w-[200px]">{stock.reasoning}</p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className="font-bold text-red-600">{stock.score?.toFixed(0)}%</p>
+                                  <p className="text-xs text-gray-500">RSI: {stock.indicators?.rsi?.toFixed(0)}</p>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <p className="font-bold text-red-600">{stock.score?.toFixed(0)}%</p>
-                                <p className="text-xs text-gray-500">RSI: {stock.indicators?.rsi?.toFixed(0)}</p>
-                              </div>
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">
-                        <TrendingDown className="w-4 h-4 inline mr-1 text-red-600" />
-                        No short candidates meet the threshold ({scanResults.thresholds?.short?.score}%+ score, {scanResults.thresholds?.short?.pillars}+ pillars)
-                      </div>
+                      ) : (
+                        <div className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">
+                          <TrendingDown className="w-4 h-4 inline mr-1 text-red-600" />
+                          No short candidates meet the threshold ({scanResults.thresholds?.short?.score}%+ score, {scanResults.thresholds?.short?.pillars}+ pillars)
+                        </div>
+                      )
                     )}
 
                     {/* Watchlist Candidates */}
