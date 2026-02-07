@@ -1081,37 +1081,37 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
 
                               {/* Trade management details */}
                               {stock.tradeManagement ? (
-                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="grid grid-cols-4 gap-1.5 text-xs">
                                   <div className="bg-gray-50 rounded p-1.5">
-                                    <span className="text-gray-500">Entry:</span>
-                                    <span className="font-medium ml-1">
+                                    <div className="text-gray-500">Entry</div>
+                                    <div className="font-medium">
                                       {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
                                       {stock.tradeManagement.entryZone.low?.toFixed(2)}-{stock.tradeManagement.entryZone.high?.toFixed(2)}
-                                    </span>
+                                    </div>
                                     {stock.entryTiming?.avoidUntil && (
-                                      <span className="text-amber-600 ml-1">(after {stock.entryTiming.avoidUntil})</span>
+                                      <div className="text-amber-600 text-[10px]">after {stock.entryTiming.avoidUntil}</div>
                                     )}
                                   </div>
                                   <div className="bg-red-50 rounded p-1.5">
-                                    <span className="text-gray-500">Stop:</span>
-                                    <span className="font-medium text-red-600 ml-1">
+                                    <div className="text-gray-500">Stop</div>
+                                    <div className="font-medium text-red-600">
                                       {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
                                       {stock.tradeManagement.stopLoss?.toFixed(2)}
-                                    </span>
+                                    </div>
                                   </div>
                                   <div className="bg-green-50 rounded p-1.5">
-                                    <span className="text-gray-500">T1 (1.5R):</span>
-                                    <span className="font-medium text-green-600 ml-1">
+                                    <div className="text-gray-500">T1 (1.5R)</div>
+                                    <div className="font-medium text-green-600">
                                       {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
                                       {stock.tradeManagement.target1?.toFixed(2)}
-                                    </span>
+                                    </div>
                                   </div>
                                   <div className="bg-green-50 rounded p-1.5">
-                                    <span className="text-gray-500">T2 (2.5R):</span>
-                                    <span className="font-medium text-green-600 ml-1">
+                                    <div className="text-gray-500">T2 (2.5R)</div>
+                                    <div className="font-medium text-green-600">
                                       {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
                                       {stock.tradeManagement.target2?.toFixed(2)}
-                                    </span>
+                                    </div>
                                   </div>
                                 </div>
                               ) : (
@@ -1169,37 +1169,37 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
 
                                 {/* Trade management details */}
                                 {stock.tradeManagement ? (
-                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <div className="grid grid-cols-4 gap-1.5 text-xs">
                                     <div className="bg-gray-50 rounded p-1.5">
-                                      <span className="text-gray-500">Entry:</span>
-                                      <span className="font-medium ml-1">
+                                      <div className="text-gray-500">Entry</div>
+                                      <div className="font-medium">
                                         {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
                                         {stock.tradeManagement.entryZone.low?.toFixed(2)}-{stock.tradeManagement.entryZone.high?.toFixed(2)}
-                                      </span>
+                                      </div>
                                       {stock.entryTiming?.avoidUntil && (
-                                        <span className="text-amber-600 ml-1">(after {stock.entryTiming.avoidUntil})</span>
+                                        <div className="text-amber-600 text-[10px]">after {stock.entryTiming.avoidUntil}</div>
                                       )}
                                     </div>
                                     <div className="bg-red-50 rounded p-1.5">
-                                      <span className="text-gray-500">Stop:</span>
-                                      <span className="font-medium text-red-600 ml-1">
+                                      <div className="text-gray-500">Stop</div>
+                                      <div className="font-medium text-red-600">
                                         {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
                                         {stock.tradeManagement.stopLoss?.toFixed(2)}
-                                      </span>
+                                      </div>
                                     </div>
                                     <div className="bg-green-50 rounded p-1.5">
-                                      <span className="text-gray-500">T1 (1.5R):</span>
-                                      <span className="font-medium text-green-600 ml-1">
+                                      <div className="text-gray-500">T1 (1.5R)</div>
+                                      <div className="font-medium text-green-600">
                                         {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
                                         {stock.tradeManagement.target1?.toFixed(2)}
-                                      </span>
+                                      </div>
                                     </div>
                                     <div className="bg-green-50 rounded p-1.5">
-                                      <span className="text-gray-500">T2 (2.5R):</span>
-                                      <span className="font-medium text-green-600 ml-1">
+                                      <div className="text-gray-500">T2 (2.5R)</div>
+                                      <div className="font-medium text-green-600">
                                         {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
                                         {stock.tradeManagement.target2?.toFixed(2)}
-                                      </span>
+                                      </div>
                                     </div>
                                   </div>
                                 ) : (
@@ -2025,7 +2025,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
 
   return (
     <div className="min-h-screen bg-gray-100 p-4">
-      <div className={`mx-auto ${analysisComplete ? 'max-w-4xl' : 'max-w-2xl'}`}>
+      <div className={`mx-auto ${analysisComplete ? 'max-w-4xl' : showScanner ? 'max-w-3xl' : 'max-w-2xl'}`}>
         {/* Progress Steps - Show for Account through Session (steps 1-4) */}
         {step > 0 && step < 5 && (
           <div className="flex items-center justify-between mb-8">
