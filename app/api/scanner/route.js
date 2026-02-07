@@ -254,6 +254,18 @@ async function scanTicker(ticker, mode) {
     // Determine direction and overall score
     const { direction, score, reasoning } = determineTradeDirection(pillars, indicators, mode)
 
+    // Calculate ATR-based trade management (entry, stop, targets)
+    const tradeManagement = calculateTradeManagement(
+      indicators.currentPrice,
+      indicators.atrRaw,
+      direction,
+      indicators.recentHigh,
+      indicators.recentLow
+    )
+
+    // Get entry timing guidance
+    const entryTiming = getEntryTiming(ticker)
+
     return {
       ticker,
       name: meta.shortName || ticker,
@@ -278,6 +290,9 @@ async function scanTicker(ticker, mode) {
         distanceFrom52High: indicators.distanceFrom52High,
         distanceFrom52Low: indicators.distanceFrom52Low
       },
+      // ATR-based trade management
+      tradeManagement,
+      entryTiming,
       reasoning
     }
   } catch (error) {
@@ -309,8 +324,14 @@ function calculateIndicators(closes, highs, lows, volumes) {
   const volumeRatio = recentVolume / avgVolume20
 
   // ATR (14-period) for volatility
-  const atr = calculateATR(highs, lows, closes, 14)
-  const atrPercent = (atr / currentPrice) * 100
+  const atrRaw = calculateATR(highs, lows, closes, 14)
+  const atrPercent = (atrRaw / currentPrice) * 100
+
+  // Recent high/low for trade management (last 10 days)
+  const recentHighs = highs.slice(-10).filter(h => h !== null)
+  const recentLows = lows.slice(-10).filter(l => l !== null)
+  const recentHigh = recentHighs.length > 0 ? Math.max(...recentHighs) : currentPrice
+  const recentLow = recentLows.length > 0 ? Math.min(...recentLows) : currentPrice
 
   // 52-week high/low (approximate with available data)
   const high52 = Math.max(...highs.filter(h => h !== null))
@@ -349,6 +370,9 @@ function calculateIndicators(closes, highs, lows, volumes) {
     rsi,
     volumeRatio,
     atr: atrPercent,
+    atrRaw,           // Raw ATR value for stop/target calculations
+    recentHigh,       // 10-day high for entry zone
+    recentLow,        // 10-day low for entry zone
     distanceFrom52High,
     distanceFrom52Low,
     priceVsMa50,
@@ -399,6 +423,114 @@ function calculateATR(highs, lows, closes, period = 14) {
   }
 
   return atrSum / period
+}
+
+/**
+ * Calculate ATR-based trade management levels
+ * Returns entry zone, stop loss, T1 (1.5R), T2 (2.5R), and R:R ratio
+ */
+function calculateTradeManagement(currentPrice, atr, direction, recentHigh, recentLow) {
+  if (!atr || atr <= 0) {
+    return null
+  }
+
+  // Entry zone: current price +/- 0.2 ATR for limit orders (tighter zone)
+  const entryBuffer = atr * 0.2
+
+  if (direction === 'LONG') {
+    // For longs: entry slightly below current, stop below that
+    const entryHigh = currentPrice
+    const entryLow = Math.max(currentPrice - entryBuffer, recentLow)
+    const entryMid = (entryHigh + entryLow) / 2
+
+    // Stop loss: 1 ATR below entry low (gives room for normal volatility)
+    const stopLoss = entryLow - atr
+
+    // Risk per share
+    const risk = entryMid - stopLoss
+
+    // Targets based on R multiples
+    const target1 = entryMid + (risk * 1.5)  // T1 = 1.5R
+    const target2 = entryMid + (risk * 2.5)  // T2 = 2.5R
+
+    // R:R ratio (using T2 as the main target)
+    const reward = target2 - entryMid
+    const riskRewardRatio = reward / risk
+
+    return {
+      entryZone: { low: entryLow, high: entryHigh },
+      stopLoss,
+      target1,
+      target2,
+      risk,
+      riskRewardRatio: riskRewardRatio.toFixed(1)
+    }
+  } else if (direction === 'SHORT') {
+    // For shorts: entry slightly above current, stop above that
+    const entryLow = currentPrice
+    const entryHigh = Math.min(currentPrice + entryBuffer, recentHigh)
+    const entryMid = (entryHigh + entryLow) / 2
+
+    // Stop loss: 1 ATR above entry high
+    const stopLoss = entryHigh + atr
+
+    // Risk per share
+    const risk = stopLoss - entryMid
+
+    // Targets based on R multiples (lower prices for shorts)
+    const target1 = entryMid - (risk * 1.5)  // T1 = 1.5R
+    const target2 = entryMid - (risk * 2.5)  // T2 = 2.5R
+
+    // R:R ratio
+    const reward = entryMid - target2
+    const riskRewardRatio = reward / risk
+
+    return {
+      entryZone: { low: entryLow, high: entryHigh },
+      stopLoss,
+      target1,
+      target2,
+      risk,
+      riskRewardRatio: riskRewardRatio.toFixed(1)
+    }
+  }
+
+  return null
+}
+
+/**
+ * Get entry timing guidance based on market
+ * Avoid volatile opens: first 30 minutes of trading
+ */
+function getEntryTiming(ticker) {
+  // Determine market based on ticker
+  const isUK = ticker.endsWith('.L')
+  const isForex = ticker.includes('=X')
+  const isCrypto = ticker.includes('-USD') && !ticker.startsWith('^')
+
+  if (isCrypto || isForex) {
+    // 24-hour markets - no specific timing restriction
+    return {
+      market: isForex ? 'Forex' : 'Crypto',
+      avoidUntil: null,
+      note: 'Trades 24/7 - enter at discretion'
+    }
+  }
+
+  if (isUK) {
+    return {
+      market: 'UK',
+      avoidUntil: '09:00 GMT',
+      note: 'Avoid first 30 min (08:00-09:00 GMT)'
+    }
+  }
+
+  // Default to US
+  return {
+    market: 'US',
+    avoidUntil: '10:00 ET',
+    note: 'Avoid first 30 min (09:30-10:00 ET)'
+  }
 }
 
 function average(arr) {

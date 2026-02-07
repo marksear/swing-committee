@@ -42,8 +42,6 @@ export default function SwingCommitteeApp() {
     maxPositions: '6',
     maxHeat: '6',
     // Permissions
-    leverageAllowed: false,
-    maxLeverage: '2',
     shortSellingAllowed: true,
     ukStocks: true,
     usStocks: true,
@@ -51,7 +49,7 @@ export default function SwingCommitteeApp() {
     forex: false,
     crypto: false,
     // Execution Mode
-    executionMode: 'standard', // 'standard' or 'spread_bet'
+    executionMode: 'spread_bet', // Spread bet only
     spreadBetBroker: 'IG',
     // Positions
     openPositions: '',
@@ -793,19 +791,6 @@ export default function SwingCommitteeApp() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div>
-                    <p className="font-medium text-gray-900">Leverage / CFDs</p>
-                    <p className="text-sm text-gray-500">Allow leveraged instruments</p>
-                  </div>
-                  <button
-                    onClick={() => setFormData({ ...formData, leverageAllowed: !formData.leverageAllowed })}
-                    className={`w-12 h-7 rounded-full transition-colors relative ${formData.leverageAllowed ? 'bg-blue-600' : 'bg-gray-300'}`}
-                  >
-                    <div className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow transition-transform ${formData.leverageAllowed ? 'translate-x-6' : 'translate-x-1'}`} />
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div>
                     <p className="font-medium text-gray-900">Short Selling</p>
                     <p className="text-sm text-gray-500">Allow short positions</p>
                   </div>
@@ -844,77 +829,45 @@ export default function SwingCommitteeApp() {
               </div>
             </div>
 
-            {/* Execution Mode */}
+            {/* Spread Bet Settings */}
             <div className="border-t border-gray-200 pt-6">
-              <h3 className="font-medium text-gray-900 mb-4">Execution Mode</h3>
+              <h3 className="font-medium text-gray-900 mb-4">Spread Bet Settings</h3>
 
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setFormData({ ...formData, executionMode: 'standard' })}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${
-                    formData.executionMode === 'standard'
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <BarChart3 className={`w-5 h-5 ${formData.executionMode === 'standard' ? 'text-blue-600' : 'text-gray-400'}`} />
-                    <span className="font-bold text-gray-900">Standard</span>
-                  </div>
-                  <p className="text-sm text-gray-600">Shares / CFDs</p>
-                  <p className="text-xs text-gray-400 mt-1">Subject to Capital Gains Tax</p>
-                </button>
-                <button
-                  onClick={() => setFormData({ ...formData, executionMode: 'spread_bet' })}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${
-                    formData.executionMode === 'spread_bet'
-                      ? 'border-green-500 bg-green-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <TrendingUp className={`w-5 h-5 ${formData.executionMode === 'spread_bet' ? 'text-green-600' : 'text-gray-400'}`} />
-                    <span className="font-bold text-gray-900">Spread Bet</span>
-                    <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-xs rounded">UK Tax-Free</span>
-                  </div>
-                  <p className="text-sm text-gray-600">£ per point sizing</p>
-                  <p className="text-xs text-gray-400 mt-1">Profits exempt from CGT</p>
-                </button>
-              </div>
-
-              {formData.executionMode === 'spread_bet' && (
-                <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Spread Bet Broker</label>
-                    <select
-                      value={formData.spreadBetBroker}
-                      onChange={(e) => setFormData({ ...formData, spreadBetBroker: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                    >
-                      <option value="IG">IG Index</option>
-                      <option value="CMC">CMC Markets</option>
-                      <option value="Spreadex">Spreadex</option>
-                      <option value="CityIndex">City Index</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-                  <div className="text-xs text-green-800">
-                    <p><strong>How it works:</strong> Position sized in £ per point. 1 point = 1p (UK) or 1¢ (US).</p>
-                    <p className="mt-1"><strong>Tax:</strong> Profits are tax-free under UK gambling rules. Losses not deductible.</p>
-                  </div>
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg space-y-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingUp className="w-5 h-5 text-green-600" />
+                  <span className="font-bold text-gray-900">Spread Betting</span>
+                  <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-xs rounded">UK Tax-Free</span>
                 </div>
-              )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Broker</label>
+                  <select
+                    value={formData.spreadBetBroker}
+                    onChange={(e) => setFormData({ ...formData, spreadBetBroker: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                  >
+                    <option value="IG">IG Index</option>
+                    <option value="CMC">CMC Markets</option>
+                    <option value="Spreadex">Spreadex</option>
+                    <option value="CityIndex">City Index</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div className="text-xs text-green-800">
+                  <p><strong>How it works:</strong> Position sized in £ per point. 1 point = 1p (UK) or 1¢ (US).</p>
+                  <p className="mt-1"><strong>Tax:</strong> Profits are tax-free under UK gambling rules. Losses not deductible.</p>
+                </div>
+              </div>
             </div>
 
-            <div className={`border rounded-lg p-4 ${formData.executionMode === 'spread_bet' ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'}`}>
-              <p className={`text-sm ${formData.executionMode === 'spread_bet' ? 'text-green-800' : 'text-blue-800'}`}>
+            <div className="border rounded-lg p-4 bg-green-50 border-green-200">
+              <p className="text-sm text-green-800">
                 <strong>Risk calculation:</strong> With £{formData.accountSize} and {formData.riskPerTrade}% risk,
                 your max risk per trade is <strong>£{(parseFloat(formData.accountSize) * parseFloat(formData.riskPerTrade) / 100).toFixed(0)}</strong>
-                {formData.executionMode === 'spread_bet' && (
-                  <span className="block mt-1">
-                    <strong>Spread Bet example:</strong> 500pt stop = £{((parseFloat(formData.accountSize) * parseFloat(formData.riskPerTrade) / 100) / 500).toFixed(2)}/point
-                  </span>
-                )}
+                <span className="block mt-1">
+                  <strong>Example:</strong> 500pt stop = £{((parseFloat(formData.accountSize) * parseFloat(formData.riskPerTrade) / 100) / 500).toFixed(2)}/point
+                </span>
               </p>
             </div>
           </div>
@@ -1108,22 +1061,67 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                             Add All to Watchlist
                           </button>
                         </div>
-                        <div className="grid gap-2 max-h-48 overflow-y-auto">
+                        <div className="grid gap-3 max-h-96 overflow-y-auto">
                           {scanResults.results.long.map((stock, i) => (
-                            <div key={stock.ticker} className="bg-white border border-green-200 rounded-lg p-2 flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <span className="w-6 h-6 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-bold">
-                                  {i + 1}
-                                </span>
-                                <div>
-                                  <p className="font-bold text-gray-900">{stock.ticker}</p>
-                                  <p className="text-xs text-gray-500 truncate max-w-[200px]">{stock.reasoning}</p>
+                            <div key={stock.ticker} className="bg-white border border-green-200 rounded-lg p-3">
+                              {/* Header row */}
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="w-6 h-6 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-bold">
+                                    {i + 1}
+                                  </span>
+                                  <span className="font-bold text-gray-900">{stock.ticker}</span>
+                                  <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">LONG</span>
+                                  <span className="text-xs text-gray-500">Score: {stock.score?.toFixed(0)}%</span>
                                 </div>
+                                {stock.tradeManagement && (
+                                  <span className="text-sm font-bold text-green-600">R:R {stock.tradeManagement.riskRewardRatio}:1</span>
+                                )}
                               </div>
-                              <div className="text-right">
-                                <p className="font-bold text-green-600">{stock.score?.toFixed(0)}%</p>
-                                <p className="text-xs text-gray-500">RSI: {stock.indicators?.rsi?.toFixed(0)}</p>
-                              </div>
+
+                              {/* Trade management details */}
+                              {stock.tradeManagement ? (
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <div className="bg-gray-50 rounded p-1.5">
+                                    <span className="text-gray-500">Entry:</span>
+                                    <span className="font-medium ml-1">
+                                      {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
+                                      {stock.tradeManagement.entryZone.low?.toFixed(2)}-{stock.tradeManagement.entryZone.high?.toFixed(2)}
+                                    </span>
+                                    {stock.entryTiming?.avoidUntil && (
+                                      <span className="text-amber-600 ml-1">(after {stock.entryTiming.avoidUntil})</span>
+                                    )}
+                                  </div>
+                                  <div className="bg-red-50 rounded p-1.5">
+                                    <span className="text-gray-500">Stop:</span>
+                                    <span className="font-medium text-red-600 ml-1">
+                                      {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
+                                      {stock.tradeManagement.stopLoss?.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="bg-green-50 rounded p-1.5">
+                                    <span className="text-gray-500">T1 (1.5R):</span>
+                                    <span className="font-medium text-green-600 ml-1">
+                                      {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
+                                      {stock.tradeManagement.target1?.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="bg-green-50 rounded p-1.5">
+                                    <span className="text-gray-500">T2 (2.5R):</span>
+                                    <span className="font-medium text-green-600 ml-1">
+                                      {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
+                                      {stock.tradeManagement.target2?.toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-xs text-gray-500">
+                                  Price: {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}{stock.price?.toFixed(2)} | RSI: {stock.indicators?.rsi?.toFixed(0)}
+                                </div>
+                              )}
+
+                              {/* Reasoning */}
+                              <p className="text-xs text-gray-500 mt-2 truncate">{stock.reasoning}</p>
                             </div>
                           ))}
                         </div>
@@ -1151,22 +1149,67 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                               Add All to Watchlist
                             </button>
                           </div>
-                          <div className="grid gap-2 max-h-48 overflow-y-auto">
+                          <div className="grid gap-3 max-h-96 overflow-y-auto">
                             {scanResults.results.short.map((stock, i) => (
-                              <div key={stock.ticker} className="bg-white border border-red-200 rounded-lg p-2 flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                  <span className="w-6 h-6 bg-red-100 text-red-700 rounded-full flex items-center justify-center text-xs font-bold">
-                                    {i + 1}
-                                  </span>
-                                  <div>
-                                    <p className="font-bold text-gray-900">{stock.ticker}</p>
-                                    <p className="text-xs text-gray-500 truncate max-w-[200px]">{stock.reasoning}</p>
+                              <div key={stock.ticker} className="bg-white border border-red-200 rounded-lg p-3">
+                                {/* Header row */}
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="w-6 h-6 bg-red-100 text-red-700 rounded-full flex items-center justify-center text-xs font-bold">
+                                      {i + 1}
+                                    </span>
+                                    <span className="font-bold text-gray-900">{stock.ticker}</span>
+                                    <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">SHORT</span>
+                                    <span className="text-xs text-gray-500">Score: {stock.score?.toFixed(0)}%</span>
                                   </div>
+                                  {stock.tradeManagement && (
+                                    <span className="text-sm font-bold text-red-600">R:R {stock.tradeManagement.riskRewardRatio}:1</span>
+                                  )}
                                 </div>
-                                <div className="text-right">
-                                  <p className="font-bold text-red-600">{stock.score?.toFixed(0)}%</p>
-                                  <p className="text-xs text-gray-500">RSI: {stock.indicators?.rsi?.toFixed(0)}</p>
-                                </div>
+
+                                {/* Trade management details */}
+                                {stock.tradeManagement ? (
+                                  <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div className="bg-gray-50 rounded p-1.5">
+                                      <span className="text-gray-500">Entry:</span>
+                                      <span className="font-medium ml-1">
+                                        {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
+                                        {stock.tradeManagement.entryZone.low?.toFixed(2)}-{stock.tradeManagement.entryZone.high?.toFixed(2)}
+                                      </span>
+                                      {stock.entryTiming?.avoidUntil && (
+                                        <span className="text-amber-600 ml-1">(after {stock.entryTiming.avoidUntil})</span>
+                                      )}
+                                    </div>
+                                    <div className="bg-red-50 rounded p-1.5">
+                                      <span className="text-gray-500">Stop:</span>
+                                      <span className="font-medium text-red-600 ml-1">
+                                        {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
+                                        {stock.tradeManagement.stopLoss?.toFixed(2)}
+                                      </span>
+                                    </div>
+                                    <div className="bg-green-50 rounded p-1.5">
+                                      <span className="text-gray-500">T1 (1.5R):</span>
+                                      <span className="font-medium text-green-600 ml-1">
+                                        {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
+                                        {stock.tradeManagement.target1?.toFixed(2)}
+                                      </span>
+                                    </div>
+                                    <div className="bg-green-50 rounded p-1.5">
+                                      <span className="text-gray-500">T2 (2.5R):</span>
+                                      <span className="font-medium text-green-600 ml-1">
+                                        {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
+                                        {stock.tradeManagement.target2?.toFixed(2)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-gray-500">
+                                    Price: {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}{stock.price?.toFixed(2)} | RSI: {stock.indicators?.rsi?.toFixed(0)}
+                                  </div>
+                                )}
+
+                                {/* Reasoning */}
+                                <p className="text-xs text-gray-500 mt-2 truncate">{stock.reasoning}</p>
                               </div>
                             ))}
                           </div>
