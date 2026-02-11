@@ -19,6 +19,7 @@ export default function SwingCommitteeApp() {
   const [showUKSources, setShowUKSources] = useState(false);
   const [showUSSources, setShowUSSources] = useState(false);
   const [expandedSignal, setExpandedSignal] = useState(null);
+  const [expandedPosition, setExpandedPosition] = useState(null);
   const [activeReportTab, setActiveReportTab] = useState('summary');
   const [watchlistPrices, setWatchlistPrices] = useState({});
   const [isFetchingPrices, setIsFetchingPrices] = useState(false);
@@ -1769,7 +1770,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                 {[
                   { id: 'summary', label: 'Summary' },
                   { id: 'signals', label: 'Trade Signals' },
-                  { id: 'positions', label: 'Positions' },
+                  { id: 'openpositions', label: 'Open Positions' },
                   { id: 'full', label: 'Full Report' },
                 ].map(tab => (
                   <button
@@ -1951,29 +1952,142 @@ Format: Ticker, Notes (we'll fetch live prices)"
                 </div>
               )}
 
-              {activeReportTab === 'positions' && (
-                <div className="space-y-6">
-                  {/* Committee Positions */}
-                  {analysisResult.committeePositions && (
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                      <h3 className="font-bold text-gray-900 mb-3">Three Committee Positions</h3>
-                      <div className="prose prose-sm max-w-none">
-                        <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-4 rounded-lg overflow-auto">
-                          {analysisResult.committeePositions}
+              {activeReportTab === 'openpositions' && (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="p-4 border-b border-gray-100">
+                    <h2 className="font-bold text-gray-900">Open Positions</h2>
+                  </div>
+
+                  {analysisResult.parsedPositions && analysisResult.parsedPositions.length > 0 ? (
+                    <div>
+                      {analysisResult.parsedPositions.map((position, index) => (
+                        <div key={index} className="border-b border-gray-100 last:border-b-0">
+                          <button
+                            onClick={() => setExpandedPosition(expandedPosition === position.ticker ? null : position.ticker)}
+                            className="w-full p-4 flex items-center justify-between hover:bg-gray-50"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className={`w-12 h-12 ${
+                                position.action === 'EXIT' || position.action === 'CLOSE' ? 'bg-red-500' :
+                                position.action === 'HOLD' ? 'bg-blue-500' :
+                                position.action === 'TRAIL' ? 'bg-green-500' :
+                                position.direction === 'LONG' ? 'bg-green-500' :
+                                position.direction === 'SHORT' ? 'bg-red-500' : 'bg-blue-500'
+                              } rounded-xl flex items-center justify-center text-white font-bold text-lg`}>
+                                {position.direction === 'LONG' ? 'L' : position.direction === 'SHORT' ? 'S' : 'H'}
+                              </div>
+                              <div className="text-left">
+                                <p className="font-bold text-gray-900">{position.ticker}</p>
+                                <p className="text-sm text-gray-500">
+                                  Entry: {position.entry}
+                                  {position.daysHeld !== undefined && <span className="ml-2">• {position.daysHeld} days</span>}
+                                </p>
+                              </div>
+                              {position.pillarStatus && (
+                                <span className={`px-2 py-1 text-xs font-medium rounded ${
+                                  position.pillarStatus.includes('Active') || parseInt(position.pillarStatus) >= 4 ? 'bg-green-100 text-green-700' :
+                                  parseInt(position.pillarStatus) >= 3 ? 'bg-amber-100 text-amber-700' :
+                                  'bg-gray-100 text-gray-600'
+                                }`}>
+                                  {position.pillarStatus}
+                                </span>
+                              )}
+                              <span className={`px-2 py-1 text-xs font-medium rounded ${
+                                position.action === 'EXIT' || position.action === 'CLOSE' ? 'bg-red-100 text-red-700' :
+                                position.action === 'HOLD' ? 'bg-blue-100 text-blue-700' :
+                                position.action === 'TRAIL' ? 'bg-green-100 text-green-700' :
+                                'bg-gray-100 text-gray-600'
+                              }`}>
+                                {position.action || 'HOLD'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <div className="text-right">
+                                <p className={`font-bold ${
+                                  position.pnlPercent > 0 ? 'text-green-600' :
+                                  position.pnlPercent < 0 ? 'text-red-600' : 'text-gray-900'
+                                }`}>
+                                  {position.pnlPercent > 0 ? '+' : ''}{position.pnlPercent?.toFixed(1)}%
+                                  {position.pnlAmount && <span className="text-sm"> ({position.pnlAmount})</span>}
+                                </p>
+                                {position.currentPrice && (
+                                  <p className="text-sm text-gray-500">Current: {position.currentPrice}</p>
+                                )}
+                              </div>
+                              <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${expandedPosition === position.ticker ? 'rotate-180' : ''}`} />
+                            </div>
+                          </button>
+
+                          {/* Expanded position details */}
+                          {expandedPosition === position.ticker && (
+                            <div className="px-4 pb-4 bg-gray-50 border-t border-gray-100">
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-4">
+                                {position.entry && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">Entry Price</p>
+                                    <p className="font-bold text-gray-900">{position.entry}</p>
+                                  </div>
+                                )}
+                                {position.currentPrice && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">Current Price</p>
+                                    <p className="font-bold text-gray-900">{position.currentPrice}</p>
+                                  </div>
+                                )}
+                                {position.stop && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">Stop Loss</p>
+                                    <p className="font-bold text-red-600">{position.stop}</p>
+                                  </div>
+                                )}
+                                {position.newStop && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">New Stop</p>
+                                    <p className="font-bold text-amber-600">{position.newStop}</p>
+                                  </div>
+                                )}
+                                {position.target && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">Target</p>
+                                    <p className="font-bold text-green-600">{position.target}</p>
+                                  </div>
+                                )}
+                                {position.daysHeld !== undefined && (
+                                  <div>
+                                    <p className="text-xs text-gray-500 uppercase">Days Held</p>
+                                    <p className="font-bold text-gray-900">{position.daysHeld}</p>
+                                  </div>
+                                )}
+                              </div>
+                              {position.assessment && (
+                                <div className="mt-2 p-3 bg-blue-50 rounded-lg">
+                                  <p className="text-sm text-blue-800">{position.assessment}</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : formData.openPositions ? (
+                    <div className="p-4">
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <pre className="whitespace-pre-wrap text-sm text-gray-700">
+                          {analysisResult.positionsReview || 'No position analysis available.'}
                         </pre>
                       </div>
                     </div>
+                  ) : (
+                    <div className="p-8 text-center text-gray-500">
+                      <p>No open positions to review.</p>
+                      <p className="text-sm mt-1">Positions entered in the setup will appear here with analysis.</p>
+                    </div>
                   )}
 
-                  {/* Open Positions Review */}
-                  {analysisResult.positionsReview && (
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                      <h3 className="font-bold text-gray-900 mb-3">Open Positions Review</h3>
-                      <div className="prose prose-sm max-w-none">
-                        <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-4 rounded-lg overflow-auto">
-                          {analysisResult.positionsReview}
-                        </pre>
-                      </div>
+                  {/* Position Summary */}
+                  {analysisResult.positionSummary && (
+                    <div className="p-4 bg-blue-50 border-t border-blue-200">
+                      <p className="text-sm text-blue-800">{analysisResult.positionSummary}</p>
                     </div>
                   )}
                 </div>

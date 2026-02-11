@@ -1133,6 +1133,24 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
       }
     }
   ],
+  "positionReviews": [
+    {
+      "ticker": "CSCO",
+      "direction": "LONG",
+      "entry": "$87.25",
+      "currentPrice": "$86.29",
+      "pnlPercent": -1.1,
+      "pnlAmount": "-£24",
+      "daysHeld": 0,
+      "pillarStatus": "3/6 Active",
+      "action": "HOLD",
+      "stop": "$85.60",
+      "newStop": null,
+      "target": "$95.00",
+      "assessment": "Fresh position entered today, experiencing normal initial volatility. Six pillar alignment remains intact. Hold position with original stop."
+    }
+  ],
+  "positionSummary": "1 position reviewed, 0 on track, 0 flagged for exit",
   "summary": "Enter long positions in NVDA on VCP breakout pattern with 4 pillar alignment.",
   "totalRisk": "£100",
   "portfolioHeat": "1.0%",
@@ -1151,6 +1169,15 @@ Replace the example values with actual analysis. The JSON must be valid and pars
 - pillarCount, grade, reasoning, catalyst, risks
 - pillars object with pass/note for all 6 pillars (livermore, oneil, minervini, darvas, raschke, weinstein)
 
+**IMPORTANT FOR POSITION REVIEWS:** If there are open positions, include a "positionReviews" array with each position containing:
+- ticker, direction (LONG/SHORT), entry (entry price), currentPrice
+- pnlPercent (number, e.g. -1.1 for -1.1%), pnlAmount (e.g. "-£24")
+- daysHeld (number of days)
+- pillarStatus (e.g. "3/6 Active" or "5/6 Active")
+- action: "HOLD" / "TRAIL" / "EXIT" / "PARTIAL" / "ADD"
+- stop (current stop), newStop (if trailing, otherwise null), target
+- assessment (1-2 sentence review of position status)
+
 ---
 
 Be specific and practical. For each trade signal, provide BOTH Standard (shares) AND Spread Bet (£/point) sizing. Mark any data that needs real-time verification as **NEEDS CHECK**.`
@@ -1164,6 +1191,8 @@ function parseResponse(responseText) {
     mode: jsonData?.committee || extractCommitteeStance(responseText),
     summary: jsonData?.summary || extractSummary(responseText),
     signals: jsonData ? convertJsonToSignals(jsonData) : extractSignals(responseText),
+    parsedPositions: jsonData?.positionReviews || [],
+    positionSummary: jsonData?.positionSummary || null,
     marketRegime: extractSection(responseText, 'PART A', 'PART B') || extractSection(responseText, 'MARKET REGIME', 'PART B'),
     positionsReview: extractSection(responseText, 'PART B', 'PART C') || extractSection(responseText, 'OPEN POSITIONS REVIEW', 'PART C'),
     watchlistSignals: extractSection(responseText, 'PART C', 'PART D') || extractSection(responseText, 'WATCHLIST SIGNALS', 'PART D'),
