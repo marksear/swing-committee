@@ -1243,11 +1243,13 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                             <span
                               key={stock.ticker}
                               className={`bg-white border rounded px-2 py-1 text-sm ${
+                                stock.earningsWarning ? 'border-blue-300' :
                                 stock.volatilityWarning ? 'border-red-300' : 'border-amber-200'
                               }`}
-                              title={stock.volatilityWarning || stock.reasoning}
+                              title={stock.earningsWarning || stock.volatilityWarning || stock.reasoning}
                             >
-                              {stock.volatilityWarning && <span className="text-red-500 mr-1">⚠️</span>}
+                              {stock.earningsWarning && <span className="text-blue-500 mr-1">📅</span>}
+                              {stock.volatilityWarning && !stock.earningsWarning && <span className="text-red-500 mr-1">⚠️</span>}
                               <span className="font-medium">{stock.ticker}</span>
                               <span className="text-amber-600 ml-1">{stock.score?.toFixed(0)}%</span>
                             </span>

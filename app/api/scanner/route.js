@@ -203,6 +203,67 @@ export async function POST(request) {
   }
 }
 
+/**
+ * Check if ticker has earnings within ±2 days
+ * Returns { nearEarnings: boolean, earningsDate: string|null, daysUntilEarnings: number|null, earningsWarning: string|null }
+ */
+async function checkEarningsProximity(ticker) {
+  try {
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=calendarEvents`
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      }
+    })
+
+    if (!response.ok) {
+      return { nearEarnings: false, earningsDate: null, daysUntilEarnings: null, earningsWarning: null }
+    }
+
+    const data = await response.json()
+    const earnings = data.quoteSummary?.result?.[0]?.calendarEvents?.earnings
+
+    if (!earnings?.earningsDate?.[0]?.raw) {
+      return { nearEarnings: false, earningsDate: null, daysUntilEarnings: null, earningsWarning: null }
+    }
+
+    // Get earnings timestamp and convert to date
+    const earningsTimestamp = earnings.earningsDate[0].raw * 1000
+    const earningsDate = new Date(earningsTimestamp)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    earningsDate.setHours(0, 0, 0, 0)
+
+    // Calculate days difference (positive = future, negative = past)
+    const diffTime = earningsDate.getTime() - today.getTime()
+    const daysUntilEarnings = Math.round(diffTime / (1000 * 60 * 60 * 24))
+
+    // Check if within ±2 days
+    const nearEarnings = daysUntilEarnings >= -2 && daysUntilEarnings <= 2
+
+    let earningsWarning = null
+    if (nearEarnings) {
+      if (daysUntilEarnings > 0) {
+        earningsWarning = `Earnings in ${daysUntilEarnings} day${daysUntilEarnings > 1 ? 's' : ''} - avoid new positions`
+      } else if (daysUntilEarnings === 0) {
+        earningsWarning = 'Earnings TODAY - avoid new positions'
+      } else {
+        earningsWarning = `Earnings ${Math.abs(daysUntilEarnings)} day${Math.abs(daysUntilEarnings) > 1 ? 's' : ''} ago - wait for dust to settle`
+      }
+    }
+
+    return {
+      nearEarnings,
+      earningsDate: earningsDate.toISOString().split('T')[0],
+      daysUntilEarnings,
+      earningsWarning
+    }
+  } catch (error) {
+    // Don't fail the scan if earnings check fails
+    return { nearEarnings: false, earningsDate: null, daysUntilEarnings: null, earningsWarning: null }
+  }
+}
+
 async function scanTicker(ticker, mode) {
   try {
     // Fetch 6 months of daily data for technical analysis
@@ -254,14 +315,28 @@ async function scanTicker(ticker, mode) {
     // Determine direction and overall score
     let { direction, score, reasoning } = determineTradeDirection(pillars, indicators, mode)
 
+    // Check earnings proximity (±2 days)
+    // Only check for stocks that would otherwise be LONG or SHORT candidates
+    let earningsData = { nearEarnings: false, earningsDate: null, daysUntilEarnings: null, earningsWarning: null }
+    if (direction === 'LONG' || direction === 'SHORT') {
+      earningsData = await checkEarningsProximity(ticker)
+    }
+
     // Check for post-earnings/news volatility spike
     // If detected, demote LONG/SHORT to WATCH with warning
     let volatilityWarning = null
-    if (indicators.isVolatilitySpike && (direction === 'LONG' || direction === 'SHORT')) {
+    let earningsWarning = null
+
+    // Earnings warning takes priority (more specific)
+    if (earningsData.nearEarnings && (direction === 'LONG' || direction === 'SHORT')) {
+      earningsWarning = earningsData.earningsWarning
+      reasoning = `📅 ${earningsWarning}. Original signal: ${direction} - ${reasoning}`
+      direction = 'WATCH'
+    }
+    // Then check volatility spike (if not already demoted)
+    else if (indicators.isVolatilitySpike && (direction === 'LONG' || direction === 'SHORT')) {
       volatilityWarning = indicators.volatilityWarning
-      // Keep the original direction info but add warning
       reasoning = `⚠️ ${volatilityWarning}. Original signal: ${direction} - ${reasoning}`
-      // Demote to WATCH - don't trade right after volatile days
       direction = 'WATCH'
     }
 
@@ -304,7 +379,11 @@ async function scanTicker(ticker, mode) {
       // ATR-based trade management
       tradeManagement,
       entryTiming,
+      // Warnings
       volatilityWarning,
+      earningsWarning,
+      earningsDate: earningsData.earningsDate,
+      daysUntilEarnings: earningsData.daysUntilEarnings,
       reasoning
     }
   } catch (error) {
