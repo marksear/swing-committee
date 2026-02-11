@@ -252,7 +252,18 @@ async function scanTicker(ticker, mode) {
     const pillars = calculatePillarScores(indicators, mode)
 
     // Determine direction and overall score
-    const { direction, score, reasoning } = determineTradeDirection(pillars, indicators, mode)
+    let { direction, score, reasoning } = determineTradeDirection(pillars, indicators, mode)
+
+    // Check for post-earnings/news volatility spike
+    // If detected, demote LONG/SHORT to WATCH with warning
+    let volatilityWarning = null
+    if (indicators.isVolatilitySpike && (direction === 'LONG' || direction === 'SHORT')) {
+      volatilityWarning = indicators.volatilityWarning
+      // Keep the original direction info but add warning
+      reasoning = `⚠️ ${volatilityWarning}. Original signal: ${direction} - ${reasoning}`
+      // Demote to WATCH - don't trade right after volatile days
+      direction = 'WATCH'
+    }
 
     // Calculate ATR-based trade management (entry, stop, targets)
     const tradeManagement = calculateTradeManagement(
@@ -293,6 +304,7 @@ async function scanTicker(ticker, mode) {
       // ATR-based trade management
       tradeManagement,
       entryTiming,
+      volatilityWarning,
       reasoning
     }
   } catch (error) {
@@ -363,6 +375,26 @@ function calculateIndicators(closes, highs, lows, volumes) {
   // Trend strength (ADX approximation using directional movement)
   const trendStrength = Math.abs(momentum20d) > 10 ? 'strong' : Math.abs(momentum20d) > 5 ? 'moderate' : 'weak'
 
+  // Volatility spike detection (post-earnings / news days)
+  // Check if yesterday's range was abnormally large vs ATR
+  const yesterdayHigh = highs[n - 1]
+  const yesterdayLow = lows[n - 1]
+  const yesterdayClose = closes[n - 1]
+  const yesterdayRange = yesterdayHigh && yesterdayLow ? yesterdayHigh - yesterdayLow : 0
+  const rangeVsAtr = atrRaw > 0 ? yesterdayRange / atrRaw : 0
+
+  // Detect if close is far from the day's extreme (gap between close and low/high)
+  // For shorts: if close >> low, the low was a spike down that recovered
+  // For longs: if close << high, the high was a spike up that faded
+  const closeVsLow = yesterdayLow > 0 ? ((yesterdayClose - yesterdayLow) / yesterdayLow * 100) : 0
+  const closeVsHigh = yesterdayHigh > 0 ? ((yesterdayHigh - yesterdayClose) / yesterdayHigh * 100) : 0
+
+  // Flag as volatile if: range > 2x ATR AND close recovered significantly from extreme
+  const isVolatilitySpike = rangeVsAtr > 2 && (closeVsLow > 3 || closeVsHigh > 3)
+  const volatilityWarning = isVolatilitySpike
+    ? `High volatility day (${rangeVsAtr.toFixed(1)}x ATR) - wait for consolidation`
+    : null
+
   return {
     currentPrice,
     ma10, ma20, ma50, ma200,
@@ -379,7 +411,11 @@ function calculateIndicators(closes, highs, lows, volumes) {
     priceVsMa200,
     ma50VsMa200,
     vcpScore,
-    trendStrength
+    trendStrength,
+    // Volatility spike detection
+    isVolatilitySpike,
+    volatilityWarning,
+    rangeVsAtr
   }
 }
 

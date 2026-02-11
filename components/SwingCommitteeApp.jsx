@@ -1240,7 +1240,14 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {scanResults.results.watchlist.slice(0, 10).map((stock) => (
-                            <span key={stock.ticker} className="bg-white border border-amber-200 rounded px-2 py-1 text-sm">
+                            <span
+                              key={stock.ticker}
+                              className={`bg-white border rounded px-2 py-1 text-sm ${
+                                stock.volatilityWarning ? 'border-red-300' : 'border-amber-200'
+                              }`}
+                              title={stock.volatilityWarning || stock.reasoning}
+                            >
+                              {stock.volatilityWarning && <span className="text-red-500 mr-1">⚠️</span>}
                               <span className="font-medium">{stock.ticker}</span>
                               <span className="text-amber-600 ml-1">{stock.score?.toFixed(0)}%</span>
                             </span>
