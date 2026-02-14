@@ -157,7 +157,7 @@ export default function SwingCommitteeApp() {
     'Checking Minervini trend template...',
     'Identifying Darvas boxes...',
     'Raschke momentum analysis...',
-    'Weinstein stage check...',
+    'Sector RS check...',
     'Scoring setups against 6 pillars...',
     'Building committee positions...',
     'Calculating position sizes...',
@@ -316,7 +316,7 @@ export default function SwingCommitteeApp() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          mode: formData.tradeMode === 'position' ? 'position' : 'short_term',
+          mode: 'short_term',
           marketTrend,
           shortSellingAllowed: formData.shortSellingAllowed,
           regimeGate,
@@ -516,7 +516,7 @@ export default function SwingCommitteeApp() {
               </div>
               <h1 className="text-3xl font-bold text-gray-900">The Trading Program</h1>
               <p className="text-gray-600 max-w-md mx-auto">
-                Systematic swing trading using the wisdom of Livermore, O'Neil, Minervini, Darvas, Raschke & Weinstein.
+                Systematic swing trading using the wisdom of Livermore, O'Neil, Minervini, Darvas, Raschke & Sector RS.
               </p>
               <div className="grid grid-cols-6 gap-2 max-w-lg mx-auto pt-4">
                 {[
@@ -525,7 +525,7 @@ export default function SwingCommitteeApp() {
                   { name: 'Minervini', short: 'M', color: 'bg-purple-100 text-purple-700' },
                   { name: 'Darvas', short: 'D', color: 'bg-amber-100 text-amber-700' },
                   { name: 'Raschke', short: 'R', color: 'bg-pink-100 text-pink-700' },
-                  { name: 'Weinstein', short: 'W', color: 'bg-indigo-100 text-indigo-700' },
+                  { name: 'Sector RS', short: 'RS', color: 'bg-indigo-100 text-indigo-700' },
                 ].map((master) => (
                   <div key={master.name} className="text-center">
                     <div className={`w-10 h-10 ${master.color} rounded-full mx-auto mb-1 flex items-center justify-center text-sm font-bold`}>
@@ -943,7 +943,7 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                 {isScanning ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    Scanning {formData.tradeMode === 'position' ? 'Position' : 'Short-Term'} Setups...
+                    Scanning Momentum Setups...
                   </>
                 ) : (
                   <>
@@ -1372,81 +1372,6 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                       </div>
                     </div>
 
-                    {/* Position Suggestions */}
-                    <div className="space-y-2">
-                      <h4 className="font-medium text-gray-900 flex items-center gap-2">
-                        <Target className="w-4 h-4 text-indigo-500" />
-                        Position Swing (1-4 weeks)
-                      </h4>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                        {suggestions.position.usLong.length > 0 && (
-                          <button
-                            onClick={() => addSuggestionsToWatchlist(suggestions.position.usLong, 'US Long (Position)')}
-                            className="p-2 bg-white border border-green-200 rounded-lg text-left hover:bg-green-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-1 text-xs text-green-600 font-medium mb-1">
-                              <TrendingUp className="w-3 h-3" /> US Long
-                            </div>
-                            <p className="text-xs text-gray-600 truncate">{suggestions.position.usLong.join(', ')}</p>
-                          </button>
-                        )}
-                        {suggestions.position.usShort.length > 0 && (
-                          <button
-                            onClick={() => addSuggestionsToWatchlist(suggestions.position.usShort, 'US Short (Position)')}
-                            className="p-2 bg-white border border-red-200 rounded-lg text-left hover:bg-red-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-1 text-xs text-red-600 font-medium mb-1">
-                              <TrendingDown className="w-3 h-3" /> US Short
-                            </div>
-                            <p className="text-xs text-gray-600 truncate">{suggestions.position.usShort.join(', ')}</p>
-                          </button>
-                        )}
-                        {suggestions.position.ukLong.length > 0 && (
-                          <button
-                            onClick={() => addSuggestionsToWatchlist(suggestions.position.ukLong, 'UK Long (Position)')}
-                            className="p-2 bg-white border border-green-200 rounded-lg text-left hover:bg-green-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-1 text-xs text-green-600 font-medium mb-1">
-                              <TrendingUp className="w-3 h-3" /> UK Long
-                            </div>
-                            <p className="text-xs text-gray-600 truncate">{suggestions.position.ukLong.join(', ')}</p>
-                          </button>
-                        )}
-                        {suggestions.position.ukShort.length > 0 && (
-                          <button
-                            onClick={() => addSuggestionsToWatchlist(suggestions.position.ukShort, 'UK Short (Position)')}
-                            className="p-2 bg-white border border-red-200 rounded-lg text-left hover:bg-red-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-1 text-xs text-red-600 font-medium mb-1">
-                              <TrendingDown className="w-3 h-3" /> UK Short
-                            </div>
-                            <p className="text-xs text-gray-600 truncate">{suggestions.position.ukShort.join(', ')}</p>
-                          </button>
-                        )}
-                        {suggestions.position.commodLong.length > 0 && (
-                          <button
-                            onClick={() => addSuggestionsToWatchlist(suggestions.position.commodLong, 'Commodities Long (Position)')}
-                            className="p-2 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-1 text-xs text-amber-600 font-medium mb-1">
-                              <TrendingUp className="w-3 h-3" /> Commod Long
-                            </div>
-                            <p className="text-xs text-gray-600 truncate">{suggestions.position.commodLong.join(', ')}</p>
-                          </button>
-                        )}
-                        {suggestions.position.commodShort.length > 0 && (
-                          <button
-                            onClick={() => addSuggestionsToWatchlist(suggestions.position.commodShort, 'Commodities Short (Position)')}
-                            className="p-2 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-1 text-xs text-amber-600 font-medium mb-1">
-                              <TrendingDown className="w-3 h-3" /> Commod Short
-                            </div>
-                            <p className="text-xs text-gray-600 truncate">{suggestions.position.commodShort.join(', ')}</p>
-                          </button>
-                        )}
-                      </div>
-                    </div>
 
                     <p className="text-xs text-purple-600 italic">
                       Note: Suggestions are based on recent momentum. Always verify with your own analysis.
@@ -1552,7 +1477,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                 <li>• Minervini trend template & VCP</li>
                 <li>• Darvas box structure</li>
                 <li>• Raschke momentum/mean reversion</li>
-                <li>• Weinstein stage analysis</li>
+                <li>• Sector relative strength</li>
               </ul>
             </div>
 
@@ -1572,38 +1497,12 @@ Format: Ticker, Notes (we'll fetch live prices)"
             <h2 className="text-2xl font-bold text-gray-900">Session Settings</h2>
             <p className="text-gray-600">Configure this analysis session</p>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Trade Mode</label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setFormData({ ...formData, tradeMode: 'short_term' })}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${
-                    formData.tradeMode === 'short_term'
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <Zap className={`w-5 h-5 ${formData.tradeMode === 'short_term' ? 'text-blue-600' : 'text-gray-400'}`} />
-                    <span className="font-bold text-gray-900">Short-Term Swing</span>
-                  </div>
-                  <p className="text-sm text-gray-600">2-7 days • Tighter stops • Quick momentum</p>
-                </button>
-                <button
-                  onClick={() => setFormData({ ...formData, tradeMode: 'position' })}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${
-                    formData.tradeMode === 'position'
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <Target className={`w-5 h-5 ${formData.tradeMode === 'position' ? 'text-blue-600' : 'text-gray-400'}`} />
-                    <span className="font-bold text-gray-900">Position Swing</span>
-                  </div>
-                  <p className="text-sm text-gray-600">1-4 weeks • Wider stops • Trend following</p>
-                </button>
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+              <div className="flex items-center gap-2 mb-1">
+                <Zap className="w-5 h-5 text-blue-600" />
+                <span className="font-bold text-gray-900">Short-Term Momentum Swing</span>
               </div>
+              <p className="text-sm text-gray-600">1-3 day holds • Momentum breakouts • ATR-based stops</p>
             </div>
 
             <div>
@@ -1743,7 +1642,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                     <p className="text-blue-200 text-sm">The Trading Program Report</p>
                     <h1 className="text-2xl font-bold mt-1">{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</h1>
                     <p className="text-blue-300 mt-2">
-                      {formData.tradeMode === 'position' ? 'Position Swing Mode' : 'Short-Term Swing Mode'} • {analysisResult.mode || 'Balanced'} Committee
+                      Momentum Swing • {analysisResult.mode || 'Balanced'} Committee
                     </p>
                   </div>
                 </div>

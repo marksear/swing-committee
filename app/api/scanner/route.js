@@ -266,8 +266,8 @@ async function checkEarningsProximity(ticker) {
 
 async function scanTicker(ticker, mode) {
   try {
-    // Fetch 6 months of daily data for technical analysis
-    const days = mode === 'short_term' ? 90 : 180
+    // Fetch 90 days of daily data for short-term momentum analysis
+    const days = 90
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=${days}d`
 
     const response = await fetch(url, {
@@ -295,8 +295,8 @@ async function scanTicker(ticker, mode) {
     const lows = quote.low || []
     const volumes = quote.volume || []
 
-    // Need at least 63 days of data for position swing analysis
-    if (closes.length < 63) {
+    // Need at least 50 days of data for MA calculations
+    if (closes.length < 50) {
       return { ticker, error: 'Insufficient data' }
     }
 
@@ -309,11 +309,18 @@ async function scanTicker(ticker, mode) {
     // Calculate technical indicators
     const indicators = calculateIndicators(closes, highs, lows, volumes)
 
+    // Fetch sector momentum for relative strength calculation
+    const sectorMomentum20d = await fetchSectorMomentum(ticker)
+    indicators.sectorMomentum20d = sectorMomentum20d
+    indicators.sectorRelativeStrength = sectorMomentum20d !== null
+      ? indicators.momentum20d - sectorMomentum20d
+      : null
+
     // Calculate pillar scores
-    const pillars = calculatePillarScores(indicators, mode)
+    const pillars = calculatePillarScores(indicators)
 
     // Determine direction and overall score
-    let { direction, score, reasoning } = determineTradeDirection(pillars, indicators, mode)
+    let { direction, score, reasoning } = determineTradeDirection(pillars, indicators)
 
     // Check earnings proximity (±2 days)
     // Only check for stocks that would otherwise be LONG or SHORT candidates
@@ -401,8 +408,10 @@ function calculateIndicators(closes, highs, lows, volumes) {
   const ma50 = average(closes.slice(-50))
   const ma200 = n >= 200 ? average(closes.slice(-200)) : average(closes.slice(-Math.min(n, 150)))
 
-  // Momentum (% returns)
+  // Momentum (% returns) - multiple timeframes for 1-3 day trading
+  const momentum3d = n >= 4 ? ((currentPrice - closes[n - 4]) / closes[n - 4] * 100) : 0
   const momentum5d = ((currentPrice - closes[n - 6]) / closes[n - 6] * 100)
+  const momentum10d = n >= 11 ? ((currentPrice - closes[n - 11]) / closes[n - 11] * 100) : 0
   const momentum20d = ((currentPrice - closes[n - 21]) / closes[n - 21] * 100)
   const momentum63d = n >= 64 ? ((currentPrice - closes[n - 64]) / closes[n - 64] * 100) : null
 
@@ -454,6 +463,26 @@ function calculateIndicators(closes, highs, lows, volumes) {
   // Trend strength (ADX approximation using directional movement)
   const trendStrength = Math.abs(momentum20d) > 10 ? 'strong' : Math.abs(momentum20d) > 5 ? 'moderate' : 'weak'
 
+  // Price vs fast MAs (critical for 1-3 day trading)
+  const priceVsMa10 = ((currentPrice - ma10) / ma10 * 100)
+  const priceVsMa20 = ((currentPrice - ma20) / ma20 * 100)
+
+  // ATR rate of change: is volatility expanding or contracting?
+  // Compare recent 5-day ATR vs 14-day ATR
+  const atr5 = n >= 6 ? calculateATR(highs.slice(-6), lows.slice(-6), closes.slice(-6), 5) : atrRaw
+  const atrExpansion = atrRaw > 0 ? (atr5 / atrRaw) : 1  // >1 = expanding, <1 = contracting
+
+  // Up-volume vs down-volume ratio (participation quality)
+  let upVolume = 0, downVolume = 0
+  for (let i = Math.max(0, n - 10); i < n; i++) {
+    if (closes[i] > closes[i - 1]) {
+      upVolume += (volumes[i] || 0)
+    } else {
+      downVolume += (volumes[i] || 0)
+    }
+  }
+  const upDownVolumeRatio = downVolume > 0 ? upVolume / downVolume : 1
+
   // Volatility spike detection (post-earnings / news days)
   // Check if yesterday's range was abnormally large vs ATR
   const yesterdayHigh = highs[n - 1]
@@ -477,15 +506,19 @@ function calculateIndicators(closes, highs, lows, volumes) {
   return {
     currentPrice,
     ma10, ma20, ma50, ma200,
-    momentum5d, momentum20d, momentum63d,
+    momentum3d, momentum5d, momentum10d, momentum20d, momentum63d,
     rsi,
     volumeRatio,
+    upDownVolumeRatio,
     atr: atrPercent,
     atrRaw,           // Raw ATR value for stop/target calculations
+    atrExpansion,      // >1 = vol expanding, <1 = contracting
     recentHigh,       // 10-day high for entry zone
     recentLow,        // 10-day low for entry zone
     distanceFrom52High,
     distanceFrom52Low,
+    priceVsMa10,
+    priceVsMa20,
     priceVsMa50,
     priceVsMa200,
     ma50VsMa200,
@@ -648,168 +681,254 @@ function getEntryTiming(ticker) {
   }
 }
 
+// Sector ETF mapping for relative strength calculation
+const SECTOR_ETFS = {
+  // US sectors
+  'AAPL': 'XLK', 'MSFT': 'XLK', 'GOOGL': 'XLK', 'META': 'XLK', 'NVDA': 'XLK',
+  'AVGO': 'XLK', 'ADBE': 'XLK', 'CRM': 'XLK', 'CSCO': 'XLK', 'INTC': 'XLK',
+  'AMD': 'XLK', 'QCOM': 'XLK', 'TXN': 'XLK', 'ACN': 'XLK', 'NFLX': 'XLK',
+  'AMZN': 'XLY', 'TSLA': 'XLY', 'HD': 'XLY', 'MCD': 'XLY', 'NKE': 'XLY', 'LOW': 'XLY',
+  'JPM': 'XLF', 'V': 'XLF', 'MA': 'XLF', 'SPGI': 'XLF', 'BRK-B': 'XLF',
+  'UNH': 'XLV', 'JNJ': 'XLV', 'MRK': 'XLV', 'ABBV': 'XLV', 'LLY': 'XLV',
+  'TMO': 'XLV', 'ABT': 'XLV', 'DHR': 'XLV', 'PFE': 'XLV',
+  'XOM': 'XLE', 'CVX': 'XLE',
+  'PG': 'XLP', 'KO': 'XLP', 'PEP': 'XLP', 'COST': 'XLP', 'WMT': 'XLP', 'PM': 'XLP',
+  'NEE': 'XLU', 'VZ': 'XLC', 'CMCSA': 'XLC',
+  'RTX': 'XLI', 'HON': 'XLI', 'BA': 'XLI', 'UNP': 'XLI', 'CAT': 'XLI',
+  // UK stocks - use FTSE 100 as sector proxy
+  'SHEL.L': '^FTSE', 'BP.L': '^FTSE', 'AZN.L': '^FTSE', 'HSBA.L': '^FTSE',
+  'ULVR.L': '^FTSE', 'GSK.L': '^FTSE', 'RIO.L': '^FTSE', 'REL.L': '^FTSE',
+  'DGE.L': '^FTSE', 'BATS.L': '^FTSE', 'LSEG.L': '^FTSE', 'NG.L': '^FTSE',
+  'AAL.L': '^FTSE', 'GLEN.L': '^FTSE', 'VOD.L': '^FTSE', 'BHP.L': '^FTSE',
+  'PRU.L': '^FTSE', 'LLOY.L': '^FTSE', 'BARC.L': '^FTSE', 'RKT.L': '^FTSE',
+  'IMB.L': '^FTSE', 'SSE.L': '^FTSE', 'AHT.L': '^FTSE', 'BA.L': '^FTSE',
+  'CPG.L': '^FTSE', 'EXPN.L': '^FTSE', 'STAN.L': '^FTSE', 'ABF.L': '^FTSE',
+  'ANTO.L': '^FTSE', 'CRH.L': '^FTSE', 'FERG.L': '^FTSE', 'IAG.L': '^FTSE',
+  'IHG.L': '^FTSE', 'KGF.L': '^FTSE', 'LAND.L': '^FTSE', 'LGEN.L': '^FTSE',
+  'MNG.L': '^FTSE', 'NWG.L': '^FTSE', 'PSON.L': '^FTSE', 'RR.L': '^FTSE',
+  'SBRY.L': '^FTSE', 'SGE.L': '^FTSE', 'SMDS.L': '^FTSE', 'SMT.L': '^FTSE',
+  'SN.L': '^FTSE', 'SPX.L': '^FTSE', 'SVT.L': '^FTSE', 'TSCO.L': '^FTSE',
+  'WPP.L': '^FTSE', 'WTB.L': '^FTSE'
+}
+
+// Cache for sector ETF data to avoid repeated fetches
+const sectorCache = {}
+
+async function fetchSectorMomentum(ticker) {
+  const sectorETF = SECTOR_ETFS[ticker]
+  if (!sectorETF) return null
+
+  // Check cache (valid for 1 hour)
+  if (sectorCache[sectorETF] && (Date.now() - sectorCache[sectorETF].timestamp < 3600000)) {
+    return sectorCache[sectorETF].momentum20d
+  }
+
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sectorETF}?interval=1d&range=30d`
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    })
+    if (!response.ok) return null
+
+    const data = await response.json()
+    const closes = data.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []
+    const validCloses = closes.filter(c => c !== null)
+    if (validCloses.length < 20) return null
+
+    const n = validCloses.length
+    const sectorMomentum20d = ((validCloses[n - 1] - validCloses[n - 21]) / validCloses[n - 21] * 100)
+
+    sectorCache[sectorETF] = { momentum20d: sectorMomentum20d, timestamp: Date.now() }
+    return sectorMomentum20d
+  } catch {
+    return null
+  }
+}
+
 function average(arr) {
   const valid = arr.filter(v => v !== null && !isNaN(v))
   if (valid.length === 0) return 0
   return valid.reduce((a, b) => a + b, 0) / valid.length
 }
 
-function calculatePillarScores(indicators, mode) {
+function calculatePillarScores(indicators) {
+  // =====================================================
+  // SIX PILLARS - Momentum Breakout System (School #1)
+  // Each pillar measures a DISTINCT, ORTHOGONAL signal
+  // Designed for 1-3 day spread bet swing trades
+  // =====================================================
   const pillars = {
-    livermore: { score: 0, max: 10, notes: [] },
-    oneil: { score: 0, max: 10, notes: [] },
-    minervini: { score: 0, max: 10, notes: [] },
-    darvas: { score: 0, max: 10, notes: [] },
-    raschke: { score: 0, max: 10, notes: [] },
-    weinstein: { score: 0, max: 10, notes: [] }
+    livermore: { score: 0, max: 10, notes: [] },    // Timing: consolidation → breakout
+    oneil: { score: 0, max: 10, notes: [] },        // Participation: volume quality
+    minervini: { score: 0, max: 10, notes: [] },    // Trend: MA alignment structure
+    darvas: { score: 0, max: 10, notes: [] },        // Volatility: contraction → expansion
+    raschke: { score: 0, max: 10, notes: [] },       // Momentum: speed & acceleration
+    sectorRS: { score: 0, max: 10, notes: [] }       // Relative Strength: vs sector
   }
 
-  // LIVERMORE - Pivotal Points & Timing
-  // Rewards: breakout from consolidation, strong momentum, not chasing
+  // ── LIVERMORE: Pivotal Point Timing ──
+  // UNIQUE SIGNAL: Is this at a decision point? (VCP + near high = ready to move)
+  // NOT duplicated: Only pillar that detects consolidation-to-breakout timing
   if (indicators.vcpScore > 0) {
-    pillars.livermore.score += 4
-    pillars.livermore.notes.push('VCP forming')
+    pillars.livermore.score += 5
+    pillars.livermore.notes.push('VCP: contracting ranges')
   }
-  if (indicators.momentum5d > 2 && indicators.momentum5d < 8) {
+  // Near 52w high = at a pivotal level (breakout zone)
+  if (indicators.distanceFrom52High > -5) {
     pillars.livermore.score += 3
-    pillars.livermore.notes.push('Early momentum')
-  } else if (indicators.momentum5d > 8) {
-    pillars.livermore.score += 1
-    pillars.livermore.notes.push('Extended - may be chasing')
+    pillars.livermore.notes.push('At 52w high (pivotal point)')
+  } else if (indicators.distanceFrom52High > -15) {
+    pillars.livermore.score += 2
+    pillars.livermore.notes.push('Approaching pivot')
   }
-  if (indicators.distanceFrom52High > -15 && indicators.distanceFrom52High < 0) {
-    pillars.livermore.score += 3
-    pillars.livermore.notes.push('Near 52w high')
+  // Not chasing: 3d momentum positive but not parabolic
+  if (indicators.momentum3d > 0.5 && indicators.momentum3d < 5) {
+    pillars.livermore.score += 2
+    pillars.livermore.notes.push('Early move (not chasing)')
   }
 
-  // O'NEIL - CANSLIM & Leadership
-  // Rewards: RS (relative strength), near new highs, volume confirmation
-  if (indicators.distanceFrom52High > -10) {
+  // ── O'NEIL: Participation Quality ──
+  // UNIQUE SIGNAL: Is smart money participating? Volume confirms institutional buying
+  // NOT duplicated: Only pillar focused purely on volume quality
+  if (indicators.upDownVolumeRatio > 1.5) {
     pillars.oneil.score += 4
-    pillars.oneil.notes.push('Within 10% of 52w high')
-  } else if (indicators.distanceFrom52High > -25) {
+    pillars.oneil.notes.push('Strong accumulation (up/down vol)')
+  } else if (indicators.upDownVolumeRatio > 1.2) {
     pillars.oneil.score += 2
-    pillars.oneil.notes.push('Within 25% of 52w high')
+    pillars.oneil.notes.push('Mild accumulation')
   }
-  if (indicators.volumeRatio > 1.3) {
-    pillars.oneil.score += 3
-    pillars.oneil.notes.push('Volume surge')
+  // Volume surge on recent moves
+  if (indicators.volumeRatio > 1.5) {
+    pillars.oneil.score += 4
+    pillars.oneil.notes.push('Volume surge (1.5x avg)')
+  } else if (indicators.volumeRatio > 1.2) {
+    pillars.oneil.score += 2
+    pillars.oneil.notes.push('Above-average volume')
   }
-  if (indicators.momentum63d > 20) {
-    pillars.oneil.score += 3
-    pillars.oneil.notes.push('Strong RS (63d momentum)')
-  } else if (indicators.momentum63d > 0) {
-    pillars.oneil.score += 1
-    pillars.oneil.notes.push('Positive RS')
+  // Dry-up in volume during consolidation (bullish for next move)
+  if (indicators.vcpScore > 0 && indicators.volumeRatio < 0.8) {
+    pillars.oneil.score += 2
+    pillars.oneil.notes.push('Volume dry-up in base')
   }
 
-  // MINERVINI - SEPA & Trend Template
-  // Rewards: Stage 2 setup, price above MAs, MAs stacked correctly
-  let minerviniChecks = 0
+  // ── MINERVINI: Trend Template (MA Alignment) ──
+  // UNIQUE SIGNAL: Is the MA structure correct? Price > 10 > 20 > 50
+  // NOT duplicated: Only pillar that checks MA stacking order
+  let trendChecks = 0
+  if (indicators.priceVsMa10 > 0) {
+    trendChecks++
+    pillars.minervini.notes.push('Price > 10MA')
+  }
+  if (indicators.priceVsMa20 > 0) {
+    trendChecks++
+    pillars.minervini.notes.push('Price > 20MA')
+  }
   if (indicators.priceVsMa50 > 0) {
-    minerviniChecks++
-    pillars.minervini.notes.push('Above 50MA')
+    trendChecks++
+    pillars.minervini.notes.push('Price > 50MA')
   }
-  if (indicators.priceVsMa200 > 0) {
-    minerviniChecks++
-    pillars.minervini.notes.push('Above 200MA')
+  if (indicators.ma10 > indicators.ma20) {
+    trendChecks++
+    pillars.minervini.notes.push('10MA > 20MA')
   }
-  if (indicators.ma50VsMa200 > 0) {
-    minerviniChecks++
-    pillars.minervini.notes.push('50MA > 200MA')
+  if (indicators.ma20 > indicators.ma50) {
+    trendChecks++
+    pillars.minervini.notes.push('20MA > 50MA')
   }
-  if (indicators.distanceFrom52Low > 30) {
-    minerviniChecks++
-    pillars.minervini.notes.push('30%+ above 52w low')
-  }
-  if (indicators.distanceFrom52High > -25) {
-    minerviniChecks++
-    pillars.minervini.notes.push('Within 25% of 52w high')
-  }
-  pillars.minervini.score = Math.min(10, minerviniChecks * 2)
+  // Score: 2 points per check, max 10
+  pillars.minervini.score = Math.min(10, trendChecks * 2)
 
-  // DARVAS - Box Theory
-  // Rewards: clear range, breakout potential, volume on breakout
-  if (indicators.atr < 3) {
+  // ── DARVAS: Volatility Contraction → Expansion ──
+  // UNIQUE SIGNAL: Is volatility shifting? (School #3 element)
+  // NOT duplicated: Only pillar that detects volatility regime change
+  if (indicators.atr < 2.5) {
     pillars.darvas.score += 3
-    pillars.darvas.notes.push('Low volatility (tight box)')
-  } else if (indicators.atr < 5) {
-    pillars.darvas.score += 2
-    pillars.darvas.notes.push('Moderate volatility')
+    pillars.darvas.notes.push('Tight range (low ATR%)')
+  } else if (indicators.atr < 4) {
+    pillars.darvas.score += 1
+    pillars.darvas.notes.push('Moderate range')
   }
-  if (indicators.vcpScore > 0) {
+  // ATR expansion = the breakout is happening NOW
+  if (indicators.atrExpansion > 1.3) {
     pillars.darvas.score += 4
-    pillars.darvas.notes.push('Contracting range')
+    pillars.darvas.notes.push('ATR expanding (breakout trigger!)')
+  } else if (indicators.atrExpansion > 1.1) {
+    pillars.darvas.score += 2
+    pillars.darvas.notes.push('ATR starting to expand')
   }
-  if (indicators.volumeRatio > 1.2 && indicators.momentum5d > 0) {
+  // Ideal: was contracting, now expanding (squeeze release)
+  if (indicators.vcpScore > 0 && indicators.atrExpansion > 1.2) {
     pillars.darvas.score += 3
-    pillars.darvas.notes.push('Volume on up move')
+    pillars.darvas.notes.push('Squeeze release!')
   }
 
-  // RASCHKE - Momentum & Mean Reversion
-  // For trending mode: rewards momentum continuation
-  // For mean reversion: rewards oversold bounces
-  if (mode === 'short_term') {
-    // Short-term favors momentum
-    if (indicators.rsi > 50 && indicators.rsi < 70) {
-      pillars.raschke.score += 4
-      pillars.raschke.notes.push('RSI in bullish zone')
-    } else if (indicators.rsi > 70) {
-      pillars.raschke.score += 1
-      pillars.raschke.notes.push('RSI overbought - caution')
-    } else if (indicators.rsi < 30) {
-      pillars.raschke.score += 3
-      pillars.raschke.notes.push('RSI oversold - bounce potential')
+  // ── RASCHKE: Momentum Speed & Acceleration ──
+  // UNIQUE SIGNAL: How fast is price moving? Is it accelerating?
+  // NO MEAN REVERSION: RSI <30 does NOT score here
+  // NOT duplicated: Only pillar focused on momentum velocity
+  if (indicators.momentum3d > 2) {
+    pillars.raschke.score += 3
+    pillars.raschke.notes.push('3d momentum strong')
+  } else if (indicators.momentum3d > 0.5) {
+    pillars.raschke.score += 1
+    pillars.raschke.notes.push('3d momentum positive')
+  }
+  // Momentum acceleration: 3d > 5d scaled (accelerating, not decelerating)
+  if (indicators.momentum3d > 0 && indicators.momentum5d > 0 &&
+      (indicators.momentum3d / 3) > (indicators.momentum5d / 5)) {
+    pillars.raschke.score += 3
+    pillars.raschke.notes.push('Momentum accelerating')
+  }
+  // RSI confirms momentum (NOT mean reversion)
+  if (indicators.rsi > 55 && indicators.rsi < 75) {
+    pillars.raschke.score += 2
+    pillars.raschke.notes.push('RSI confirming momentum')
+  } else if (indicators.rsi >= 75) {
+    pillars.raschke.score += 0
+    pillars.raschke.notes.push('RSI extreme - late stage')
+  }
+  // Trend alignment: momentum across timeframes
+  if (indicators.momentum5d > 0 && indicators.momentum10d > 0 && indicators.momentum20d > 0) {
+    pillars.raschke.score += 2
+    pillars.raschke.notes.push('All timeframes aligned up')
+  }
+
+  // ── SECTOR RS: Relative Strength vs Sector ──
+  // UNIQUE SIGNAL: Is this stock outperforming its peers?
+  // NOT duplicated: Only pillar using relative (not absolute) performance
+  if (indicators.sectorRelativeStrength !== null) {
+    if (indicators.sectorRelativeStrength > 5) {
+      pillars.sectorRS.score += 5
+      pillars.sectorRS.notes.push(`Beating sector by ${indicators.sectorRelativeStrength.toFixed(1)}%`)
+    } else if (indicators.sectorRelativeStrength > 2) {
+      pillars.sectorRS.score += 3
+      pillars.sectorRS.notes.push(`Outperforming sector`)
+    } else if (indicators.sectorRelativeStrength > 0) {
+      pillars.sectorRS.score += 1
+      pillars.sectorRS.notes.push(`Slightly above sector`)
+    } else {
+      pillars.sectorRS.notes.push(`Underperforming sector`)
     }
-    if (indicators.momentum5d > 3) {
-      pillars.raschke.score += 3
-      pillars.raschke.notes.push('5-day momentum positive')
+    // 10d relative strength adds orthogonal short-term signal
+    if (indicators.momentum10d > 0 && indicators.sectorRelativeStrength > 0) {
+      pillars.sectorRS.score += 3
+      pillars.sectorRS.notes.push('Short-term sector leader')
     }
-    if (indicators.trendStrength === 'strong') {
-      pillars.raschke.score += 3
-      pillars.raschke.notes.push('Strong trend')
+    // Sector itself trending up = tailwind
+    if (indicators.sectorMomentum20d > 2) {
+      pillars.sectorRS.score += 2
+      pillars.sectorRS.notes.push('Sector has tailwind')
     }
   } else {
-    // Position swing favors trend following
-    if (indicators.momentum20d > 5) {
-      pillars.raschke.score += 4
-      pillars.raschke.notes.push('20-day momentum strong')
-    }
-    if (indicators.rsi > 40 && indicators.rsi < 65) {
-      pillars.raschke.score += 3
-      pillars.raschke.notes.push('RSI healthy for trend')
-    }
-    if (indicators.trendStrength === 'strong') {
-      pillars.raschke.score += 3
-      pillars.raschke.notes.push('Strong trend established')
-    }
-  }
-
-  // WEINSTEIN - Stage Analysis
-  // Rewards: Stage 2 (above rising 30-week MA equivalent)
-  if (indicators.priceVsMa200 > 5 && indicators.ma50VsMa200 > 0) {
-    pillars.weinstein.score += 5
-    pillars.weinstein.notes.push('Stage 2 - advancing')
-  } else if (indicators.priceVsMa200 > 0) {
-    pillars.weinstein.score += 3
-    pillars.weinstein.notes.push('Above 200MA')
-  } else if (indicators.priceVsMa200 < -10) {
-    pillars.weinstein.score += 0
-    pillars.weinstein.notes.push('Stage 4 - avoid longs')
-  }
-  if (indicators.momentum63d > 10) {
-    pillars.weinstein.score += 3
-    pillars.weinstein.notes.push('Relative strength positive')
-  }
-  if (indicators.volumeRatio > 1.2) {
-    pillars.weinstein.score += 2
-    pillars.weinstein.notes.push('Volume confirming')
+    // No sector data - give neutral score so it doesn't penalise
+    pillars.sectorRS.score = 5
+    pillars.sectorRS.notes.push('No sector data (neutral)')
   }
 
   return pillars
 }
 
-function determineTradeDirection(pillars, indicators, mode) {
+function determineTradeDirection(pillars, indicators) {
   // Calculate total pillar score
   const totalScore = Object.values(pillars).reduce((sum, p) => sum + p.score, 0)
   const maxScore = Object.values(pillars).reduce((sum, p) => sum + p.max, 0)
@@ -821,12 +940,14 @@ function determineTradeDirection(pillars, indicators, mode) {
   const reasoning = []
 
   // LONG criteria
+  // Requires: 4+ pillars passing, price above 20MA (fast trend), positive short-term momentum
   if (passingPillars >= 4 && scorePercent >= 50 &&
-      indicators.priceVsMa50 > 0 && indicators.momentum20d > 0) {
+      indicators.priceVsMa20 > 0 && indicators.momentum5d > 0) {
     reasoning.push(`${passingPillars}/6 pillars passing`)
     reasoning.push(`Score: ${scorePercent.toFixed(0)}%`)
-    if (indicators.distanceFrom52High > -10) reasoning.push('Near 52w high')
+    if (indicators.distanceFrom52High > -5) reasoning.push('At 52w high')
     if (indicators.volumeRatio > 1.2) reasoning.push('Volume confirming')
+    if (indicators.atrExpansion > 1.2) reasoning.push('Volatility expanding')
 
     return {
       direction: 'LONG',
@@ -836,32 +957,30 @@ function determineTradeDirection(pillars, indicators, mode) {
   }
 
   // SHORT criteria (inverse of long)
-  // Count bearish pillars (inverse scoring - low scores are good for shorts)
+  // Requires: price below 20MA, negative momentum, weak structure
   const bearishPillars = Object.values(pillars).filter(p => p.score <= 3).length
 
-  if (indicators.priceVsMa50 < -5 && indicators.priceVsMa200 < 0 &&
-      indicators.momentum20d < -5 && indicators.rsi < 45) {
+  if (indicators.priceVsMa20 < -2 && indicators.priceVsMa50 < 0 &&
+      indicators.momentum5d < -2 && indicators.momentum3d < 0 && indicators.rsi < 45) {
     reasoning.push(`${bearishPillars}/6 pillars bearish`)
     reasoning.push(`Score: ${(100 - scorePercent).toFixed(0)}%`)
     if (indicators.distanceFrom52High < -20) reasoning.push('Far from 52w high')
-    if (indicators.rsi < 30) reasoning.push('Oversold')
+    if (indicators.momentum10d < -5) reasoning.push('Accelerating down')
 
-    // Score shorts by how bearish they are (inverse of pillar score)
     const shortScore = 100 - scorePercent
 
     return {
       direction: 'SHORT',
-      score: Math.max(shortScore, Math.abs(indicators.momentum20d) * 2),
+      score: Math.max(shortScore, Math.abs(indicators.momentum5d) * 3),
       reasoning: reasoning.join(', ')
     }
   }
 
   // WATCHLIST criteria - interesting but not ready
-  if (passingPillars >= 2 || indicators.vcpScore > 0 ||
-      (indicators.rsi < 35 && indicators.priceVsMa200 > -20)) {
+  if (passingPillars >= 2 || indicators.vcpScore > 0) {
     reasoning.push(`${passingPillars}/6 pillars`)
-    if (indicators.vcpScore > 0) reasoning.push('VCP forming')
-    if (indicators.rsi < 35) reasoning.push('Oversold bounce potential')
+    if (indicators.vcpScore > 0) reasoning.push('VCP forming - watch for breakout')
+    if (indicators.atrExpansion > 1.2) reasoning.push('Volatility expanding')
 
     return {
       direction: 'WATCH',

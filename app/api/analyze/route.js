@@ -100,7 +100,7 @@ ${Object.values(livePrices).map(formatLivePrice).join('\n')}
 
   return `# TheMoneyProgram — Swing Committee Prompt
 ## UK/US Swing Trading Mode (v1)
-### Livermore • O'Neil • Minervini • Darvas • Raschke • Weinstein
+### Livermore • O'Neil • Minervini • Darvas • Raschke • Sector RS
 
 **Design goal:** Every swing trade must have *defined risk, clear entry/exit, and alignment with at least 3 of 6 masters*.
 
@@ -325,42 +325,26 @@ This Swing Committee operates on principles from the greatest traders.
 
 ---
 
-## PILLAR 6: WEINSTEIN — Stage Analysis & Weekly Charts
+## PILLAR 6: SECTOR RS — Relative Strength vs Sector
 
-> "Don't ever argue with the tape. The market knows more than you do."
+> "Fish where the fish are. The strongest stocks are in the strongest sectors."
 
-> "The trend is your friend until the end when it bends."
+**Application:** Sector RS measures whether a stock is OUTPERFORMING its sector peers over the last 20 days. This is critical for 1-3 day swing trades because sector rotation drives short-term flows.
 
-**Application:** Weinstein focuses on WEEKLY charts for swing trades:
+**Why Sector RS matters for spread bets:**
+- A stock up 5% when its sector is up 8% is actually WEAK (laggard)
+- A stock up 5% when its sector is up 1% is genuinely STRONG (leader)
+- Sector leaders get institutional flow; laggards get sold on rotation
 
-**The Four Stages (Weekly Chart):**
+**Sector RS Checklist:**
+1. ✓ Stock 20d momentum > Sector ETF 20d momentum (outperforming)
+2. ✓ Stock 10d momentum positive while outperforming sector (short-term leader)
+3. ✓ Sector itself trending up (tailwind, not headwind)
 
-| Stage | 30-Week MA | Price Action | Volume | Strategy |
-|-------|-----------|--------------|--------|----------|
-| **Stage 1** | Flattening | Base forming | Quiet | Watch for accumulation |
-| **Stage 2** | Rising | Higher highs/lows | Expanding | **BUY AND HOLD** ✓ |
-| **Stage 3** | Flattening/Rolling | Choppy, false breakouts | Heavy but mixed | Take profits |
-| **Stage 4** | Declining | Lower highs/lows | Spikes on drops | **AVOID or SHORT** |
-
-**Weinstein Buy Checklist:**
-1. ✓ Stock breaking out from Stage 1 base
-2. ✓ 30-week MA turning UP (not flat or down)
-3. ✓ Price ABOVE 30-week MA
-4. ✓ Relative strength line rising (vs market)
-5. ✓ Volume surge on breakout week
-6. ✓ Industry group also in Stage 2
-
-**Weinstein Sell Signals:**
-- Price closes below 30-week MA on heavy volume
-- 30-week MA flattens and starts to roll over
-- Lower highs form (Stage 3 beginning)
-- Relative strength line turns down
-
-**Weinstein Red Flags:**
-- ❌ Buying below 30-week MA
-- ❌ Buying in Stage 3 or 4
-- ❌ 30-week MA sloping down
-- ❌ Weak relative strength vs market
+**Sector RS Red Flags:**
+- ❌ Stock underperforming its sector (relative weakness)
+- ❌ Sector in downtrend (no tailwind, swimming upstream)
+- ❌ Stock only rising because sector is rising (no alpha)
 
 ---
 
@@ -515,7 +499,7 @@ A leveraged trade must still risk only 1-2% of TOTAL account value.
 
 **If short selling permitted:**
 
-1. Only short Stage 4 stocks (Weinstein)
+1. Only short stocks with weak sector relative strength
 2. Stop loss ABOVE resistance (reverse of long)
 3. Cover partial at 1:1 R:R (take some profit quickly)
 4. Watch for short squeeze setups (high short interest + good news)
@@ -577,10 +561,10 @@ User selected mode: ${formData.tradeMode === 'position' ? 'Position Swing (1-4 w
 | Key MAs | 50-day, 30-week |
 
 **Position Swing Specific Rules:**
-- Use weekly charts for trend confirmation (Weinstein)
+- Check sector relative strength (Sector RS pillar)
 - Trail stops using daily chart structure
 - More patience — let winners run
-- More emphasis on O'Neil, Minervini, Weinstein
+- More emphasis on O'Neil, Minervini, Sector RS
 
 ---
 
@@ -683,7 +667,7 @@ AVG VOLUME: [Volume]
 [✓/✗] MINERVINI — Stage & VCP: [Assessment]
 [✓/✗] DARVAS — Box & Breakout: [Assessment]
 [✓/✗] RASCHKE — Momentum/Mean Reversion: [Assessment]
-[✓/✗] WEINSTEIN — Weekly Stage: [Assessment]
+[✓/✗] SECTOR RS — Relative Strength: [Assessment]
 
 **PILLAR COUNT:** [X]/6 — [PASS: ≥3 / FAIL: <3]
 
@@ -864,11 +848,10 @@ For committee deliberation and reports:
 - "The first thrust in a new direction is usually the most powerful."
 - "Adapt to what the market is giving you, not what you want it to give you."
 
-## WEINSTEIN
-- "Don't ever argue with the tape."
-- "The trend is your friend until the end when it bends."
-- "Stage 2 is the only stage where you want to be long."
-- "The 30-week moving average is your best friend."
+## SECTOR RS
+- "Fish where the fish are. The strongest stocks are in the strongest sectors."
+- "Relative strength tells you who's leading and who's lagging."
+- "In a rotation market, sector selection is 80% of the trade."
 
 ---
 
@@ -885,10 +868,9 @@ For committee deliberation and reports:
 | Max Risk Per Trade | £${(parseFloat(formData.accountSize) * parseFloat(formData.riskPerTrade) / 100).toFixed(0)} |
 | Max Positions | ${formData.maxPositions} |
 | Max Portfolio Heat | ${formData.maxHeat}% |
-| Leverage Allowed | ${formData.leverageAllowed ? 'Yes (max ' + formData.maxLeverage + 'x)' : 'No'} |
 | Short Selling Allowed | ${formData.shortSellingAllowed ? 'Yes' : 'No'} |
-| Execution Mode | ${formData.executionMode === 'spread_bet' ? 'Spread Bet (UK Tax-Free)' : 'Standard (Shares/CFDs)'} |
-${formData.executionMode === 'spread_bet' ? `| Spread Bet Broker | ${formData.spreadBetBroker} |` : ''}
+| Execution Mode | Spread Bet (UK Tax-Free) |
+| Spread Bet Broker | ${formData.spreadBetBroker || 'IG'} |
 
 ## Instruments Allowed
 ${[formData.ukStocks && '- UK Stocks', formData.usStocks && '- US Stocks', formData.indices && '- Indices', formData.forex && '- Forex', formData.crypto && '- Crypto'].filter(Boolean).join('\n')}
@@ -1098,7 +1080,7 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
           "minervini": { "pass": true, "note": "Stage 2, VCP forming, above all key MAs" },
           "darvas": { "pass": true, "note": "Clear box structure, buying at breakout" },
           "raschke": { "pass": false, "note": "Mixed signals, not clearly trending" },
-          "weinstein": { "pass": true, "note": "Stage 2 on weekly, above 30-week MA" }
+          "sectorRS": { "pass": true, "note": "Outperforming sector by 3%" }
         },
         "catalyst": "Earnings momentum, AI demand",
         "risks": ["Semiconductor cycle risk", "Valuation stretched", "China exposure"]
@@ -1129,7 +1111,7 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
         "minervini": { "pass": false, "note": "Not yet in Stage 2" },
         "darvas": { "pass": true, "note": "Box forming" },
         "raschke": { "pass": false, "note": "Waiting for momentum" },
-        "weinstein": { "pass": false, "note": "Need weekly breakout" }
+        "sectorRS": { "pass": false, "note": "Underperforming sector" }
       }
     }
   ],
@@ -1167,7 +1149,7 @@ Replace the example values with actual analysis. The JSON must be valid and pars
 - company, sector, setupType
 - currentPrice, triggerLevel, potentialEntry, potentialStop, potentialTarget
 - pillarCount, grade, reasoning, catalyst, risks
-- pillars object with pass/note for all 6 pillars (livermore, oneil, minervini, darvas, raschke, weinstein)
+- pillars object with pass/note for all 6 pillars (livermore, oneil, minervini, darvas, raschke, sectorRS)
 
 **IMPORTANT FOR POSITION REVIEWS:** If there are open positions, include a "positionReviews" array with each position containing:
 - ticker, direction (LONG/SHORT), entry (entry price), currentPrice
@@ -1335,12 +1317,12 @@ function buildTradeAnalysisText(trade) {
   // Six Pillars
   text += `**SIX PILLARS ALIGNMENT:**\n`
   const pillarNames = {
-    livermore: 'LIVERMORE — Pivotal Points',
-    oneil: "O'NEIL — CANSLIM / RS",
-    minervini: 'MINERVINI — Stage & VCP',
-    darvas: 'DARVAS — Box & Breakout',
-    raschke: 'RASCHKE — Momentum/Mean Reversion',
-    weinstein: 'WEINSTEIN — Weekly Stage'
+    livermore: 'LIVERMORE — Pivotal Point Timing',
+    oneil: "O'NEIL — Participation Quality",
+    minervini: 'MINERVINI — Trend Template',
+    darvas: 'DARVAS — Volatility Expansion',
+    raschke: 'RASCHKE — Momentum Speed',
+    sectorRS: 'SECTOR RS — Relative Strength'
   }
 
   for (const [key, label] of Object.entries(pillarNames)) {
@@ -1419,12 +1401,12 @@ function buildWatchlistAnalysisText(item) {
   if (Object.keys(p).length > 0) {
     text += `**SIX PILLARS ASSESSMENT:**\n`
     const pillarNames = {
-      livermore: 'LIVERMORE — Pivotal Points',
-      oneil: "O'NEIL — CANSLIM / RS",
-      minervini: 'MINERVINI — Stage & VCP',
-      darvas: 'DARVAS — Box & Breakout',
-      raschke: 'RASCHKE — Momentum/Mean Reversion',
-      weinstein: 'WEINSTEIN — Weekly Stage'
+      livermore: 'LIVERMORE — Pivotal Point Timing',
+      oneil: "O'NEIL — Participation Quality",
+      minervini: 'MINERVINI — Trend Template',
+      darvas: 'DARVAS — Volatility Expansion',
+      raschke: 'RASCHKE — Momentum Speed',
+      sectorRS: 'SECTOR RS — Relative Strength'
     }
 
     for (const [key, label] of Object.entries(pillarNames)) {

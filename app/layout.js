@@ -2,7 +2,7 @@ import './globals.css'
 
 export const metadata = {
   title: 'Swing Committee',
-  description: 'Systematic swing trading using the wisdom of Livermore, O\'Neil, Minervini, Darvas, Raschke & Weinstein.',
+  description: 'Systematic momentum swing trading using Livermore, O\'Neil, Minervini, Darvas, Raschke & Sector RS.',
 }
 
 export default function RootLayout({ children }) {
