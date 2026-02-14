@@ -369,12 +369,46 @@ async function scanTicker(ticker, mode) {
       reasoning = `⚠️ ${volatilityWarning}. Original signal: ${direction} - ${reasoning}`
       direction = 'WATCH'
     }
-    // Short guardrail: check distance to support before allowing shorts
-    // Prevents shorting right into a bounce zone
-    else if (direction === 'SHORT' && indicators.distanceToNearestSupport < indicators.atr) {
-      const supportWarning = `Too close to support (${indicators.distanceToNearestSupport.toFixed(1)}% room vs ${indicators.atr.toFixed(1)}% ATR)`
-      reasoning = `🛡️ ${supportWarning}. Original signal: SHORT - ${reasoning}`
-      direction = 'WATCH'
+    // =====================================================
+    // S/R GUARDRAILS + AIR POCKET GATE
+    // Uses full S/R ladder (fractals, PDH/PDL, period levels, round numbers)
+    // =====================================================
+    // Calculate R (risk) for air pocket check
+    // R = 1 ATR (our standard stop distance)
+    const riskAmount = indicators.atrRaw
+    const airPocketBuffer = riskAmount * 0.15  // 0.15R buffer per expert advice
+
+    // SHORT guardrail: is there support too close below?
+    if (direction === 'SHORT' && indicators.nearestSupport) {
+      const distToSupport = indicators.distanceToSupport
+      // Block if support is within 0.5R (shorting into bounce zone)
+      if (distToSupport < riskAmount * 0.5) {
+        const sr = indicators.nearestSupport
+        reasoning = `🛡️ Short blocked: ${sr.type} support at ${sr.level.toFixed(2)} only ${(distToSupport / riskAmount).toFixed(2)}R away. Original: SHORT - ${reasoning}`
+        direction = 'WATCH'
+      }
+      // Air pocket gate: can T1 (1R) be reached before hitting support?
+      else if (distToSupport < riskAmount - airPocketBuffer) {
+        const sr = indicators.nearestSupport
+        reasoning = `🛡️ No air pocket: ${sr.type} at ${sr.level.toFixed(2)} blocks T1. Original: SHORT - ${reasoning}`
+        direction = 'WATCH'
+      }
+    }
+    // LONG guardrail: is there resistance too close above?
+    else if (direction === 'LONG' && indicators.nearestResistance) {
+      const distToResistance = indicators.distanceToResistance
+      // Block if resistance is within 0.5R (buying into ceiling)
+      if (distToResistance < riskAmount * 0.5) {
+        const sr = indicators.nearestResistance
+        reasoning = `🛡️ Long blocked: ${sr.type} resistance at ${sr.level.toFixed(2)} only ${(distToResistance / riskAmount).toFixed(2)}R away. Original: LONG - ${reasoning}`
+        direction = 'WATCH'
+      }
+      // Air pocket gate: can T1 (1R) be reached before hitting resistance?
+      else if (distToResistance < riskAmount - airPocketBuffer) {
+        const sr = indicators.nearestResistance
+        reasoning = `🛡️ No air pocket: ${sr.type} at ${sr.level.toFixed(2)} blocks T1. Original: LONG - ${reasoning}`
+        direction = 'WATCH'
+      }
     }
 
     // Calculate ATR-based trade management (entry, stop, targets)
@@ -412,7 +446,17 @@ async function scanTicker(ticker, mode) {
         atr: indicators.atr,
         distanceFrom52High: indicators.distanceFrom52High,
         distanceFrom52Low: indicators.distanceFrom52Low,
-        distanceToNearestSupport: indicators.distanceToNearestSupport
+        // S/R ladder summary
+        nearestSupport: indicators.nearestSupport ? {
+          level: indicators.nearestSupport.level,
+          type: indicators.nearestSupport.type,
+          distanceR: indicators.atrRaw > 0 ? (indicators.distanceToSupport / indicators.atrRaw).toFixed(2) : null
+        } : null,
+        nearestResistance: indicators.nearestResistance ? {
+          level: indicators.nearestResistance.level,
+          type: indicators.nearestResistance.type,
+          distanceR: indicators.atrRaw > 0 ? (indicators.distanceToResistance / indicators.atrRaw).toFixed(2) : null
+        } : null
       },
       // ATR-based trade management
       tradeManagement,
@@ -534,16 +578,96 @@ function calculateIndicators(closes, highs, lows, volumes) {
     ? `High volatility day (${rangeVsAtr.toFixed(1)}x ATR) - wait for consolidation`
     : null
 
-  // Support distance calculation (for short guardrail)
-  // Support candidates: 20-day low, 50MA (if below price)
-  const lows20d = lows.slice(-20).filter(l => l !== null)
-  const recentLow20d = lows20d.length > 0 ? Math.min(...lows20d) : currentPrice
-  const supportCandidates = [recentLow20d]
-  if (ma50 < currentPrice) supportCandidates.push(ma50)
-  const nearestSupportBelow = Math.max(...supportCandidates.filter(s => s < currentPrice), 0)
-  const distanceToNearestSupport = nearestSupportBelow > 0
-    ? ((currentPrice - nearestSupportBelow) / currentPrice) * 100
-    : 999  // No support found = infinite room
+  // =====================================================
+  // S/R LADDER — Previous Day, Period, Fractal, Round Numbers
+  // =====================================================
+
+  // 1) Previous Day Levels (PDH, PDL, PDC)
+  // Most-watched S/R for 1-3 day timeframes
+  const pdh = n >= 2 ? highs[n - 2] : null    // Previous day high (bar before last)
+  const pdl = n >= 2 ? lows[n - 2] : null      // Previous day low
+  const pdc = n >= 2 ? closes[n - 2] : null    // Previous day close
+
+  // 2) Period Highs/Lows (5, 10, 20 day)
+  const h5 = Math.max(...highs.slice(-5).filter(h => h !== null))
+  const l5 = Math.min(...lows.slice(-5).filter(l => l !== null))
+  // recentHigh = H10, recentLow = L10 (already computed above)
+  const h20 = Math.max(...highs.slice(-20).filter(h => h !== null))
+  const l20 = Math.min(...lows.slice(-20).filter(l => l !== null))
+
+  // 3) Fractal Swing High/Low Detector (3-bar pattern)
+  // Swing High at i: High[i] > High[i-1] AND High[i] > High[i+1]
+  // Swing Low at i: Low[i] < Low[i-1] AND Low[i] < Low[i+1]
+  const swingHighs = []
+  const swingLows = []
+  const fractalLookback = Math.min(40, n - 2)  // Last 40 bars
+  for (let i = n - fractalLookback; i < n - 1; i++) {
+    if (i > 0 && highs[i] !== null && highs[i - 1] !== null && highs[i + 1] !== null) {
+      if (highs[i] > highs[i - 1] && highs[i] > highs[i + 1]) {
+        swingHighs.push(highs[i])
+      }
+    }
+    if (i > 0 && lows[i] !== null && lows[i - 1] !== null && lows[i + 1] !== null) {
+      if (lows[i] < lows[i - 1] && lows[i] < lows[i + 1]) {
+        swingLows.push(lows[i])
+      }
+    }
+  }
+
+  // 4) Round Number Levels
+  // Choose step size based on price magnitude
+  let roundStep
+  if (currentPrice < 5) roundStep = 0.5
+  else if (currentPrice < 20) roundStep = 1
+  else if (currentPrice < 100) roundStep = 5
+  else if (currentPrice < 500) roundStep = 10
+  else if (currentPrice < 2000) roundStep = 50
+  else if (currentPrice < 10000) roundStep = 100
+  else roundStep = 500
+
+  const roundBelow = Math.floor(currentPrice / roundStep) * roundStep
+  const roundAbove = Math.ceil(currentPrice / roundStep) * roundStep
+  // Avoid if it's essentially at the current price
+  const roundLevelBelow = (currentPrice - roundBelow) > atrRaw * 0.05 ? roundBelow : roundBelow - roundStep
+  const roundLevelAbove = (roundAbove - currentPrice) > atrRaw * 0.05 ? roundAbove : roundAbove + roundStep
+
+  // 5) Build full S/R ladders
+  // SUPPORT: all levels below current price
+  const allSupportLevels = [
+    ...(pdl && pdl < currentPrice ? [{ level: pdl, type: 'PDL', weight: 2 }] : []),
+    ...(pdc && pdc < currentPrice ? [{ level: pdc, type: 'PDC', weight: 2 }] : []),
+    ...(l5 < currentPrice ? [{ level: l5, type: 'L5', weight: 2 }] : []),
+    ...(recentLow < currentPrice ? [{ level: recentLow, type: 'L10', weight: 2 }] : []),
+    ...(l20 < currentPrice ? [{ level: l20, type: 'L20', weight: 2 }] : []),
+    ...(ma50 < currentPrice ? [{ level: ma50, type: 'MA50', weight: 1.5 }] : []),
+    ...swingLows.filter(s => s < currentPrice).map(s => ({ level: s, type: 'SwingLow', weight: 3 })),
+    ...(roundLevelBelow > 0 && roundLevelBelow < currentPrice ? [{ level: roundLevelBelow, type: 'Round', weight: 1 }] : [])
+  ].sort((a, b) => b.level - a.level)  // Closest to price first
+
+  // RESISTANCE: all levels above current price
+  const allResistanceLevels = [
+    ...(pdh && pdh > currentPrice ? [{ level: pdh, type: 'PDH', weight: 2 }] : []),
+    ...(pdc && pdc > currentPrice ? [{ level: pdc, type: 'PDC', weight: 2 }] : []),
+    ...(h5 > currentPrice ? [{ level: h5, type: 'H5', weight: 2 }] : []),
+    ...(recentHigh > currentPrice ? [{ level: recentHigh, type: 'H10', weight: 2 }] : []),
+    ...(h20 > currentPrice ? [{ level: h20, type: 'H20', weight: 2 }] : []),
+    ...(ma50 > currentPrice ? [{ level: ma50, type: 'MA50', weight: 1.5 }] : []),
+    ...swingHighs.filter(s => s > currentPrice).map(s => ({ level: s, type: 'SwingHigh', weight: 3 })),
+    ...(roundLevelAbove > 0 && roundLevelAbove > currentPrice ? [{ level: roundLevelAbove, type: 'Round', weight: 1 }] : [])
+  ].sort((a, b) => a.level - b.level)  // Closest to price first
+
+  // Nearest meaningful support/resistance
+  const nearestSupport = allSupportLevels.length > 0 ? allSupportLevels[0] : null
+  const nearestResistance = allResistanceLevels.length > 0 ? allResistanceLevels[0] : null
+
+  // Distance calculations (as price, not %)
+  const distanceToSupport = nearestSupport ? currentPrice - nearestSupport.level : atrRaw * 100
+  const distanceToResistance = nearestResistance ? nearestResistance.level - currentPrice : atrRaw * 100
+
+  // Legacy compat
+  const distanceToNearestSupport = nearestSupport
+    ? ((currentPrice - nearestSupport.level) / currentPrice) * 100
+    : 999
 
   return {
     currentPrice,
@@ -570,10 +694,18 @@ function calculateIndicators(closes, highs, lows, volumes) {
     isVolatilitySpike,
     volatilityWarning,
     rangeVsAtr,
-    // Support distance (for short guardrail)
-    recentLow20d,
-    nearestSupportBelow,
-    distanceToNearestSupport
+    // Previous day levels
+    pdh, pdl, pdc,
+    // Period highs/lows
+    h5, l5, h20, l20,
+    // S/R ladder
+    nearestSupport,       // { level, type, weight } or null
+    nearestResistance,    // { level, type, weight } or null
+    allSupportLevels,     // Full sorted ladder
+    allResistanceLevels,  // Full sorted ladder
+    distanceToSupport,    // In price units
+    distanceToResistance, // In price units
+    distanceToNearestSupport  // Legacy compat (%)
   }
 }
 
