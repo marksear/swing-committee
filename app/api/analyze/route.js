@@ -444,7 +444,7 @@ Notional Exposure = 5250 × £0.40 = £2,100
 **Hard Rules:**
 - Every trade MUST have a stop loss defined BEFORE entry
 - Stop loss must be at a logical technical level (not arbitrary %)
-- Maximum stop distance: 8-10% for position swings, 5-6% for short-term
+- Maximum stop distance: 5-6% for short-term momentum swings
 - Once stop is set: NEVER move it down (can only trail UP)
 
 **Stop Placement by Setup:**
@@ -512,59 +512,35 @@ A leveraged trade must still risk only 1-2% of TOTAL account value.
 # SECTION 3 — TRADE MODES
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-User selected mode: ${formData.tradeMode === 'position' ? 'Position Swing (1-4 weeks)' : 'Short-Term Swing (2-7 days)'}
+User selected mode: Short-Term Momentum Swing (1-3 days)
 
 ---
 
-## MODE A: SHORT-TERM SWING (2-7 Days)
+## MODE: SHORT-TERM MOMENTUM SWING (1-3 Days)
 
 **Best for:**
-- Earnings breakouts/breakdowns
-- News-driven momentum
-- Mean reversion snaps
-- Quick sector rotations
+- Momentum breakouts/breakdowns
+- Volatility expansion plays
+- Sector rotation momentum
+- Quick directional moves
 
 **Settings:**
-| Parameter | Short-Term Setting |
-|-----------|-------------------|
-| Typical hold | 2-7 trading days |
-| Stop distance | 3-6% |
-| Target | 6-15% or 2:1 R:R |
+| Parameter | Setting |
+|-----------|---------|
+| Typical hold | 1-3 trading days |
+| Stop distance | 3-5% (1 ATR) |
+| Target 1 | 1.5R (take 50%) |
+| Target 2 | 2.5R (let runner ride) |
 | Position size | Standard (1% risk) |
 | Charts | Daily + 60-min |
-| Key MAs | 10-day, 21-day EMA |
+| Key MAs | 10-day, 20-day |
 
-**Short-Term Specific Rules:**
-- Take at least 50% off at first target
-- Don't hold through earnings (unless that's the catalyst)
+**Momentum Swing Rules:**
+- Take at least 50% off at T1 (1.5R)
+- Trail remainder to T2 (2.5R)
+- Don't hold through earnings
 - Respect daily support/resistance levels
-- More emphasis on Raschke (momentum) and Darvas (boxes)
-
----
-
-## MODE B: POSITION SWING (1-4 Weeks)
-
-**Best for:**
-- Trend continuation
-- Sector rotation plays
-- Weekly breakouts
-- Higher conviction setups
-
-**Settings:**
-| Parameter | Position Setting |
-|-----------|-----------------|
-| Typical hold | 1-4 weeks |
-| Stop distance | 6-10% |
-| Target | 15-30% or 3:1 R:R |
-| Position size | Standard (1% risk) |
-| Charts | Weekly + Daily |
-| Key MAs | 50-day, 30-week |
-
-**Position Swing Specific Rules:**
-- Check sector relative strength (Sector RS pillar)
-- Trail stops using daily chart structure
-- More patience — let winners run
-- More emphasis on O'Neil, Minervini, Sector RS
+- All 6 pillars contribute: Livermore (VCP), O'Neil (volume), Minervini (MA stack), Darvas (ATR expansion), Raschke (momentum), Sector RS (relative strength)
 
 ---
 
@@ -634,7 +610,7 @@ AVG VOLUME: [Volume]
 **SETUP IDENTIFICATION:**
 - Direction: [LONG / SHORT / NO TRADE]
 - Setup Type: [e.g., VCP Breakout, Pullback to Support, Mean Reversion]
-- Timeframe: [Short-Term Swing / Position Swing]
+- Timeframe: Short-Term Momentum Swing (1-3 days)
 - Confidence: [High / Medium / Low]
 
 **LEVELS:**
@@ -879,7 +855,7 @@ ${[formData.ukStocks && '- UK Stocks', formData.usStocks && '- US Stocks', formD
 
 | Parameter | Value |
 |-----------|-------|
-| Trade Mode | ${formData.tradeMode === 'position' ? 'Position Swing (1-4 weeks)' : 'Short-Term Swing (2-7 days)'} |
+| Trade Mode | Short-Term Momentum Swing (1-3 days) |
 | Session Type | ${formData.sessionType} |
 | User Sentiment | ${formData.marketSentiment}/10 |
 | User Regime View | ${formData.regimeView} |

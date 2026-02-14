@@ -45,27 +45,21 @@ HARD FILTERS (apply to both modes)
      major regulatory decision date, product launch event, court ruling date.
    - If event data is unavailable on Yahoo for a ticker, do NOT exclude it; mark it as "unknown" internally but allow it.
 
-MODES
-
-1) SHORT_TERM_SWING (2–7 days) — quick momentum
-   - LONG ranking: 5-trading-day % return (highest first)
-   - SHORT ranking: 5-trading-day % return (lowest first)
-
-2) POSITION_SWING (1–4 weeks) — trend persistence
-   - LONG ranking: 63-trading-day % return (highest first)
-   - SHORT ranking: 63-trading-day % return (lowest first)
+MODE: SHORT_TERM_SWING (1–3 day momentum breakouts)
+   - LONG ranking: 5-trading-day % return (highest first), must show momentum acceleration
+   - SHORT ranking: 5-trading-day % return (lowest first), must show breakdown momentum
 
 OUTPUT REQUIREMENTS (STRICT)
 - Output ONLY the lines below. No commentary, no bullets, no extra text.
 - CRITICAL: Use ONLY valid Yahoo Finance ticker symbols (e.g., INTC not INTEL, BA not BOEING, WBA not WALGREENS, MRNA not MODERNA)
-- 50/50 mix for review, per mode:
+- 50/50 mix for review:
   - US: 5 LONG + 5 SHORT (10 total)
   - UK: 5 LONG + 5 SHORT (10 total)
-  - Commodities: 2 LONG + 1 SHORT for each mode (3 total)
+  - Commodities: 2 LONG + 1 SHORT (3 total)
 - Tickers must be comma-separated.
-- CRITICAL: A ticker must NEVER appear in both LONG and SHORT lists within the same market and mode.
+- CRITICAL: A ticker must NEVER appear in both LONG and SHORT lists within the same market.
   For example: If AAPL is in SHORT_TERM_US_LONG, it CANNOT be in SHORT_TERM_US_SHORT.
-  Similarly for UK tickers: if VOD.L is in POSITION_UK_LONG, it CANNOT be in POSITION_UK_SHORT.
+  Similarly for UK tickers: if VOD.L is in SHORT_TERM_UK_LONG, it CANNOT be in SHORT_TERM_UK_SHORT.
 - Ensure NO duplicates within the same line. Avoid duplicates across lines where possible.
 
 OUTPUT FORMAT (exact keys)
@@ -74,14 +68,7 @@ SHORT_TERM_US_SHORT: <5 tickers>
 SHORT_TERM_UK_LONG: <5 tickers>
 SHORT_TERM_UK_SHORT: <5 tickers>
 SHORT_TERM_COMMOD_LONG: <2 tickers>
-SHORT_TERM_COMMOD_SHORT: <1 ticker>
-
-POSITION_US_LONG: <5 tickers>
-POSITION_US_SHORT: <5 tickers>
-POSITION_UK_LONG: <5 tickers>
-POSITION_UK_SHORT: <5 tickers>
-POSITION_COMMOD_LONG: <2 tickers>
-POSITION_COMMOD_SHORT: <1 ticker>`
+SHORT_TERM_COMMOD_SHORT: <1 ticker>`
 
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -122,14 +109,6 @@ function parseSuggestions(text, tradeMode) {
       ukShort: [],
       commodLong: [],
       commodShort: []
-    },
-    position: {
-      usLong: [],
-      usShort: [],
-      ukLong: [],
-      ukShort: [],
-      commodLong: [],
-      commodShort: []
     }
   }
 
@@ -158,24 +137,6 @@ function parseSuggestions(text, tradeMode) {
       case 'SHORT_TERM_COMMOD_SHORT':
         result.shortTerm.commodShort = tickers
         break
-      case 'POSITION_US_LONG':
-        result.position.usLong = tickers
-        break
-      case 'POSITION_US_SHORT':
-        result.position.usShort = tickers
-        break
-      case 'POSITION_UK_LONG':
-        result.position.ukLong = tickers
-        break
-      case 'POSITION_UK_SHORT':
-        result.position.ukShort = tickers
-        break
-      case 'POSITION_COMMOD_LONG':
-        result.position.commodLong = tickers
-        break
-      case 'POSITION_COMMOD_SHORT':
-        result.position.commodShort = tickers
-        break
     }
   }
 
@@ -184,9 +145,6 @@ function parseSuggestions(text, tradeMode) {
   deduplicateLongShort(result.shortTerm, 'usLong', 'usShort')
   deduplicateLongShort(result.shortTerm, 'ukLong', 'ukShort')
   deduplicateLongShort(result.shortTerm, 'commodLong', 'commodShort')
-  deduplicateLongShort(result.position, 'usLong', 'usShort')
-  deduplicateLongShort(result.position, 'ukLong', 'ukShort')
-  deduplicateLongShort(result.position, 'commodLong', 'commodShort')
 
   return result
 }
