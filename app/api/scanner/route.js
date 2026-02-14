@@ -103,59 +103,73 @@ export async function POST(request) {
       .sort((a, b) => b.score - a.score)
 
     // ========================================
-    // REGIME GATE - Single Yes/No for Aggressiveness
+    // REGIME GATE - 3-State Model with Alignment
     // ========================================
-    // Risk-On: Benchmark > rising 50DMA AND distribution days ≤ 4
-    // Risk-Off: Tighten filters, raise thresholds, suggest smaller positions
+    // GREEN: Risk-On + up/neutral trend → favour longs, full size
+    // RED:   Risk-Off OR down trend → favour shorts, full size
+    // YELLOW: Mixed signals → both sides elevated threshold, half size
     const isRiskOn = regimeGate.riskOn
 
-    // Base thresholds adjusted by Regime Gate
-    let longScoreThreshold, shortScoreThreshold, longPillarMin, shortPillarMin
-    let positionSizeMultiplier = 1.0  // 1.0 = full size, 0.5 = half size
-
-    if (isRiskOn) {
-      // RISK-ON: Standard thresholds, trend-adjusted
-      if (marketTrend === 'up') {
-        longScoreThreshold = 70
-        shortScoreThreshold = 75
-        longPillarMin = 5
-        shortPillarMin = 5
-      } else if (marketTrend === 'down') {
-        longScoreThreshold = 75
-        shortScoreThreshold = 70
-        longPillarMin = 5
-        shortPillarMin = 5
-      } else {
-        longScoreThreshold = 70
-        shortScoreThreshold = 70
-        longPillarMin = 5
-        shortPillarMin = 5
-      }
-      positionSizeMultiplier = 1.0
+    let regimeState  // GREEN, YELLOW, RED
+    if (isRiskOn && (marketTrend === 'up' || marketTrend === 'neutral')) {
+      regimeState = 'GREEN'
+    } else if (!isRiskOn || marketTrend === 'down') {
+      regimeState = 'RED'
     } else {
-      // RISK-OFF: Tighter thresholds, fewer trades, half position size
-      longScoreThreshold = 80      // Raise from 70/75 to 80
-      shortScoreThreshold = 75     // Keep shorts at 75
-      longPillarMin = 6            // Require ALL 6 pillars for longs
-      shortPillarMin = 5           // Keep shorts at 5
-      positionSizeMultiplier = 0.5 // Half position size
+      regimeState = 'YELLOW'
     }
 
-    // Count passing pillars for each result
-    const countPassingPillars = (r) => Object.values(r.pillars).filter(p => p.score >= 5).length
-    const countBearishPillars = (r) => Object.values(r.pillars).filter(p => p.score <= 3).length
+    // Thresholds by regime: WITH the tape = standard, AGAINST = exceptional
+    let longScoreThreshold, shortScoreThreshold, longPillarMin, shortPillarMin
+    let longSizeMultiplier = 1.0, shortSizeMultiplier = 1.0
 
-    // Filter longs: score threshold + minimum pillars passing
+    switch (regimeState) {
+      case 'GREEN':
+        // Longs: standard (aligned with tape)
+        longScoreThreshold = 70
+        longPillarMin = 4
+        longSizeMultiplier = 1.0
+        // Shorts: need exceptional quality (fighting the tape)
+        shortScoreThreshold = 85
+        shortPillarMin = 5
+        shortSizeMultiplier = 0.5
+        break
+      case 'RED':
+        // Shorts: standard (aligned with tape)
+        shortScoreThreshold = 70
+        shortPillarMin = 4
+        shortSizeMultiplier = 1.0
+        // Longs: need exceptional quality (fighting the tape)
+        longScoreThreshold = 85
+        longPillarMin = 5
+        longSizeMultiplier = 0.5
+        break
+      case 'YELLOW':
+      default:
+        // Both sides: elevated threshold, half size, be picky
+        longScoreThreshold = 75
+        shortScoreThreshold = 75
+        longPillarMin = 4
+        shortPillarMin = 4
+        longSizeMultiplier = 0.5
+        shortSizeMultiplier = 0.5
+        break
+    }
+
+    // Count passing pillars using bidirectional scores
+    const countLongPassing = (r) => Object.values(r.pillars).filter(p => p.longScore >= 5).length
+    const countShortPassing = (r) => Object.values(r.pillars).filter(p => p.shortScore >= 5).length
+
+    // Filter longs: score threshold + minimum long pillars passing
     const longCandidates = validResults
       .filter(r => r.direction === 'LONG')
-      .filter(r => r.score >= longScoreThreshold && countPassingPillars(r) >= longPillarMin)
+      .filter(r => r.score >= longScoreThreshold && countLongPassing(r) >= longPillarMin)
 
-    // Filter shorts: score threshold + minimum pillars bearish
-    // Only include shorts if short selling is allowed
+    // Filter shorts: score threshold + minimum short pillars passing
     const shortCandidates = shortSellingAllowed
       ? validResults
           .filter(r => r.direction === 'SHORT')
-          .filter(r => r.score >= shortScoreThreshold && countBearishPillars(r) >= shortPillarMin)
+          .filter(r => r.score >= shortScoreThreshold && countShortPassing(r) >= shortPillarMin)
       : []
 
     // Watchlist: lower threshold, for monitoring
@@ -169,12 +183,16 @@ export async function POST(request) {
       instruments,
       shortSellingAllowed,
       marketTrend,
-      // Regime Gate status - per market and overall
+      // Regime Gate status - 3-state model
       regimeGate: {
         riskOn: isRiskOn,
+        regimeState,  // GREEN, YELLOW, RED
         uk: regimeGate.uk || { riskOn: true, aboveMa50: true, distributionDays: 0 },
         us: regimeGate.us || { riskOn: true, aboveMa50: true, distributionDays: 0 },
-        positionSizeMultiplier
+        positionSizeMultiplier: {
+          long: longSizeMultiplier,
+          short: shortSizeMultiplier
+        }
       },
       thresholds: {
         long: { score: longScoreThreshold, pillars: longPillarMin },
@@ -322,6 +340,11 @@ async function scanTicker(ticker, mode) {
     // Determine direction and overall score
     let { direction, score, reasoning } = determineTradeDirection(pillars, indicators)
 
+    // Set backward-compatible .score on each pillar (UI reads p.score)
+    for (const [key, pillar] of Object.entries(pillars)) {
+      pillar.score = direction === 'SHORT' ? pillar.shortScore : pillar.longScore
+    }
+
     // Check earnings proximity (±2 days)
     // Only check for stocks that would otherwise be LONG or SHORT candidates
     let earningsData = { nearEarnings: false, earningsDate: null, daysUntilEarnings: null, earningsWarning: null }
@@ -344,6 +367,13 @@ async function scanTicker(ticker, mode) {
     else if (indicators.isVolatilitySpike && (direction === 'LONG' || direction === 'SHORT')) {
       volatilityWarning = indicators.volatilityWarning
       reasoning = `⚠️ ${volatilityWarning}. Original signal: ${direction} - ${reasoning}`
+      direction = 'WATCH'
+    }
+    // Short guardrail: check distance to support before allowing shorts
+    // Prevents shorting right into a bounce zone
+    else if (direction === 'SHORT' && indicators.distanceToNearestSupport < indicators.atr) {
+      const supportWarning = `Too close to support (${indicators.distanceToNearestSupport.toFixed(1)}% room vs ${indicators.atr.toFixed(1)}% ATR)`
+      reasoning = `🛡️ ${supportWarning}. Original signal: SHORT - ${reasoning}`
       direction = 'WATCH'
     }
 
@@ -381,7 +411,8 @@ async function scanTicker(ticker, mode) {
         volumeRatio: indicators.volumeRatio,
         atr: indicators.atr,
         distanceFrom52High: indicators.distanceFrom52High,
-        distanceFrom52Low: indicators.distanceFrom52Low
+        distanceFrom52Low: indicators.distanceFrom52Low,
+        distanceToNearestSupport: indicators.distanceToNearestSupport
       },
       // ATR-based trade management
       tradeManagement,
@@ -503,6 +534,17 @@ function calculateIndicators(closes, highs, lows, volumes) {
     ? `High volatility day (${rangeVsAtr.toFixed(1)}x ATR) - wait for consolidation`
     : null
 
+  // Support distance calculation (for short guardrail)
+  // Support candidates: 20-day low, 50MA (if below price)
+  const lows20d = lows.slice(-20).filter(l => l !== null)
+  const recentLow20d = lows20d.length > 0 ? Math.min(...lows20d) : currentPrice
+  const supportCandidates = [recentLow20d]
+  if (ma50 < currentPrice) supportCandidates.push(ma50)
+  const nearestSupportBelow = Math.max(...supportCandidates.filter(s => s < currentPrice), 0)
+  const distanceToNearestSupport = nearestSupportBelow > 0
+    ? ((currentPrice - nearestSupportBelow) / currentPrice) * 100
+    : 999  // No support found = infinite room
+
   return {
     currentPrice,
     ma10, ma20, ma50, ma200,
@@ -527,7 +569,11 @@ function calculateIndicators(closes, highs, lows, volumes) {
     // Volatility spike detection
     isVolatilitySpike,
     volatilityWarning,
-    rangeVsAtr
+    rangeVsAtr,
+    // Support distance (for short guardrail)
+    recentLow20d,
+    nearestSupportBelow,
+    distanceToNearestSupport
   }
 }
 
@@ -753,238 +799,314 @@ function average(arr) {
 
 function calculatePillarScores(indicators) {
   // =====================================================
-  // SIX PILLARS - Momentum Breakout System (School #1)
-  // Each pillar measures a DISTINCT, ORTHOGONAL signal
+  // SIX PILLARS - Bidirectional Momentum System
+  // Each pillar scores BOTH long and short quality independently
+  // Direction-agnostic signals (VCP, ATR) score both sides
+  // Directional signals (MA stack, momentum) score their side only
   // Designed for 1-3 day spread bet swing trades
   // =====================================================
   const pillars = {
-    livermore: { score: 0, max: 10, notes: [] },    // Timing: consolidation → breakout
-    oneil: { score: 0, max: 10, notes: [] },        // Participation: volume quality
-    minervini: { score: 0, max: 10, notes: [] },    // Trend: MA alignment structure
-    darvas: { score: 0, max: 10, notes: [] },        // Volatility: contraction → expansion
-    raschke: { score: 0, max: 10, notes: [] },       // Momentum: speed & acceleration
-    sectorRS: { score: 0, max: 10, notes: [] }       // Relative Strength: vs sector
+    livermore: { longScore: 0, shortScore: 0, max: 10, notes: [] },
+    oneil: { longScore: 0, shortScore: 0, max: 10, notes: [] },
+    minervini: { longScore: 0, shortScore: 0, max: 10, notes: [] },
+    darvas: { longScore: 0, shortScore: 0, max: 10, notes: [] },
+    raschke: { longScore: 0, shortScore: 0, max: 10, notes: [] },
+    sectorRS: { longScore: 0, shortScore: 0, max: 10, notes: [] }
   }
 
   // ── LIVERMORE: Pivotal Point Timing ──
-  // UNIQUE SIGNAL: Is this at a decision point? (VCP + near high = ready to move)
-  // NOT duplicated: Only pillar that detects consolidation-to-breakout timing
+  // VCP is direction-agnostic (contracting ranges = coiled spring either way)
   if (indicators.vcpScore > 0) {
-    pillars.livermore.score += 5
+    pillars.livermore.longScore += 5
+    pillars.livermore.shortScore += 5
     pillars.livermore.notes.push('VCP: contracting ranges')
   }
-  // Near 52w high = at a pivotal level (breakout zone)
+  // LONG: Near 52w high = breakout zone
   if (indicators.distanceFrom52High > -5) {
-    pillars.livermore.score += 3
-    pillars.livermore.notes.push('At 52w high (pivotal point)')
+    pillars.livermore.longScore += 3
+    pillars.livermore.notes.push('At 52w high (long pivot)')
   } else if (indicators.distanceFrom52High > -15) {
-    pillars.livermore.score += 2
-    pillars.livermore.notes.push('Approaching pivot')
+    pillars.livermore.longScore += 2
+    pillars.livermore.notes.push('Approaching high pivot')
   }
-  // Not chasing: 3d momentum positive but not parabolic
+  // SHORT: Near 52w low = breakdown zone
+  if (indicators.distanceFrom52Low < 5) {
+    pillars.livermore.shortScore += 3
+    pillars.livermore.notes.push('At 52w low (short pivot)')
+  } else if (indicators.distanceFrom52Low < 15) {
+    pillars.livermore.shortScore += 2
+    pillars.livermore.notes.push('Approaching low pivot')
+  }
+  // LONG: Early upward move (not chasing)
   if (indicators.momentum3d > 0.5 && indicators.momentum3d < 5) {
-    pillars.livermore.score += 2
-    pillars.livermore.notes.push('Early move (not chasing)')
+    pillars.livermore.longScore += 2
+    pillars.livermore.notes.push('Early move up')
+  }
+  // SHORT: Early downward move (not chasing)
+  if (indicators.momentum3d < -0.5 && indicators.momentum3d > -5) {
+    pillars.livermore.shortScore += 2
+    pillars.livermore.notes.push('Early move down')
   }
 
-  // ── O'NEIL: Participation Quality ──
-  // UNIQUE SIGNAL: Is smart money participating? Volume confirms institutional buying
-  // NOT duplicated: Only pillar focused purely on volume quality
+  // ── O'NEIL: Participation Quality (Demand vs Supply) ──
+  // LONG: Accumulation (up volume dominates)
   if (indicators.upDownVolumeRatio > 1.5) {
-    pillars.oneil.score += 4
-    pillars.oneil.notes.push('Strong accumulation (up/down vol)')
+    pillars.oneil.longScore += 4
+    pillars.oneil.notes.push('Strong accumulation')
   } else if (indicators.upDownVolumeRatio > 1.2) {
-    pillars.oneil.score += 2
+    pillars.oneil.longScore += 2
     pillars.oneil.notes.push('Mild accumulation')
   }
-  // Volume surge on recent moves
+  // SHORT: Distribution (down volume dominates)
+  if (indicators.upDownVolumeRatio < 0.67) {
+    pillars.oneil.shortScore += 4
+    pillars.oneil.notes.push('Strong distribution')
+  } else if (indicators.upDownVolumeRatio < 0.83) {
+    pillars.oneil.shortScore += 2
+    pillars.oneil.notes.push('Mild distribution')
+  }
+  // Volume surge — direction-agnostic (confirms conviction either way)
   if (indicators.volumeRatio > 1.5) {
-    pillars.oneil.score += 4
+    pillars.oneil.longScore += 4
+    pillars.oneil.shortScore += 4
     pillars.oneil.notes.push('Volume surge (1.5x avg)')
   } else if (indicators.volumeRatio > 1.2) {
-    pillars.oneil.score += 2
+    pillars.oneil.longScore += 2
+    pillars.oneil.shortScore += 2
     pillars.oneil.notes.push('Above-average volume')
   }
-  // Dry-up in volume during consolidation (bullish for next move)
+  // LONG: Volume dry-up in base (bullish for breakout)
   if (indicators.vcpScore > 0 && indicators.volumeRatio < 0.8) {
-    pillars.oneil.score += 2
+    pillars.oneil.longScore += 2
     pillars.oneil.notes.push('Volume dry-up in base')
+  }
+  // SHORT: Failed rally on low volume (bearish for breakdown)
+  if (indicators.vcpScore > 0 && indicators.volumeRatio < 0.8 && indicators.momentum3d < 0) {
+    pillars.oneil.shortScore += 2
+    pillars.oneil.notes.push('Failed rally on low volume')
   }
 
   // ── MINERVINI: Trend Template (MA Alignment) ──
-  // UNIQUE SIGNAL: Is the MA structure correct? Price > 10 > 20 > 50
-  // NOT duplicated: Only pillar that checks MA stacking order
-  let trendChecks = 0
-  if (indicators.priceVsMa10 > 0) {
-    trendChecks++
-    pillars.minervini.notes.push('Price > 10MA')
-  }
-  if (indicators.priceVsMa20 > 0) {
-    trendChecks++
-    pillars.minervini.notes.push('Price > 20MA')
-  }
-  if (indicators.priceVsMa50 > 0) {
-    trendChecks++
-    pillars.minervini.notes.push('Price > 50MA')
-  }
-  if (indicators.ma10 > indicators.ma20) {
-    trendChecks++
-    pillars.minervini.notes.push('10MA > 20MA')
-  }
-  if (indicators.ma20 > indicators.ma50) {
-    trendChecks++
-    pillars.minervini.notes.push('20MA > 50MA')
-  }
-  // Score: 2 points per check, max 10
-  pillars.minervini.score = Math.min(10, trendChecks * 2)
+  // LONG: Price > 10 > 20 > 50 stacking
+  let longTrendChecks = 0
+  if (indicators.priceVsMa10 > 0) longTrendChecks++
+  if (indicators.priceVsMa20 > 0) longTrendChecks++
+  if (indicators.priceVsMa50 > 0) longTrendChecks++
+  if (indicators.ma10 > indicators.ma20) longTrendChecks++
+  if (indicators.ma20 > indicators.ma50) longTrendChecks++
+  pillars.minervini.longScore = Math.min(10, longTrendChecks * 2)
+  if (longTrendChecks >= 4) pillars.minervini.notes.push(`Long MA stack: ${longTrendChecks}/5`)
+
+  // SHORT: Price < 10 < 20 < 50 inverse stacking
+  let shortTrendChecks = 0
+  if (indicators.priceVsMa10 < 0) shortTrendChecks++
+  if (indicators.priceVsMa20 < 0) shortTrendChecks++
+  if (indicators.priceVsMa50 < 0) shortTrendChecks++
+  if (indicators.ma10 < indicators.ma20) shortTrendChecks++
+  if (indicators.ma20 < indicators.ma50) shortTrendChecks++
+  pillars.minervini.shortScore = Math.min(10, shortTrendChecks * 2)
+  if (shortTrendChecks >= 4) pillars.minervini.notes.push(`Short MA stack: ${shortTrendChecks}/5`)
 
   // ── DARVAS: Volatility Contraction → Expansion ──
-  // UNIQUE SIGNAL: Is volatility shifting? (School #3 element)
-  // NOT duplicated: Only pillar that detects volatility regime change
+  // Tight range — direction-agnostic (coiled spring)
   if (indicators.atr < 2.5) {
-    pillars.darvas.score += 3
+    pillars.darvas.longScore += 3
+    pillars.darvas.shortScore += 3
     pillars.darvas.notes.push('Tight range (low ATR%)')
   } else if (indicators.atr < 4) {
-    pillars.darvas.score += 1
+    pillars.darvas.longScore += 1
+    pillars.darvas.shortScore += 1
     pillars.darvas.notes.push('Moderate range')
   }
-  // ATR expansion = the breakout is happening NOW
+  // ATR expansion — direction-agnostic (breakout happening)
   if (indicators.atrExpansion > 1.3) {
-    pillars.darvas.score += 4
+    pillars.darvas.longScore += 4
+    pillars.darvas.shortScore += 4
     pillars.darvas.notes.push('ATR expanding (breakout trigger!)')
   } else if (indicators.atrExpansion > 1.1) {
-    pillars.darvas.score += 2
+    pillars.darvas.longScore += 2
+    pillars.darvas.shortScore += 2
     pillars.darvas.notes.push('ATR starting to expand')
   }
-  // Ideal: was contracting, now expanding (squeeze release)
+  // Squeeze release — DIRECTIONAL (uses momentum3d to assign side)
   if (indicators.vcpScore > 0 && indicators.atrExpansion > 1.2) {
-    pillars.darvas.score += 3
-    pillars.darvas.notes.push('Squeeze release!')
+    if (indicators.momentum3d > 0) {
+      pillars.darvas.longScore += 3
+      pillars.darvas.notes.push('Squeeze release UP!')
+    }
+    if (indicators.momentum3d < 0) {
+      pillars.darvas.shortScore += 3
+      pillars.darvas.notes.push('Squeeze release DOWN!')
+    }
   }
 
   // ── RASCHKE: Momentum Speed & Acceleration ──
-  // UNIQUE SIGNAL: How fast is price moving? Is it accelerating?
-  // NO MEAN REVERSION: RSI <30 does NOT score here
-  // NOT duplicated: Only pillar focused on momentum velocity
+  // LONG momentum
   if (indicators.momentum3d > 2) {
-    pillars.raschke.score += 3
-    pillars.raschke.notes.push('3d momentum strong')
+    pillars.raschke.longScore += 3
+    pillars.raschke.notes.push('3d momentum strong (up)')
   } else if (indicators.momentum3d > 0.5) {
-    pillars.raschke.score += 1
-    pillars.raschke.notes.push('3d momentum positive')
+    pillars.raschke.longScore += 1
   }
-  // Momentum acceleration: 3d > 5d scaled (accelerating, not decelerating)
+  // SHORT momentum
+  if (indicators.momentum3d < -2) {
+    pillars.raschke.shortScore += 3
+    pillars.raschke.notes.push('3d momentum strong (down)')
+  } else if (indicators.momentum3d < -0.5) {
+    pillars.raschke.shortScore += 1
+  }
+  // LONG acceleration: 3d rate > 5d rate (speeding up)
   if (indicators.momentum3d > 0 && indicators.momentum5d > 0 &&
       (indicators.momentum3d / 3) > (indicators.momentum5d / 5)) {
-    pillars.raschke.score += 3
-    pillars.raschke.notes.push('Momentum accelerating')
+    pillars.raschke.longScore += 3
+    pillars.raschke.notes.push('Momentum accelerating up')
   }
-  // RSI confirms momentum (NOT mean reversion)
+  // SHORT acceleration: downward momentum speeding up
+  if (indicators.momentum3d < 0 && indicators.momentum5d < 0 &&
+      (Math.abs(indicators.momentum3d) / 3) > (Math.abs(indicators.momentum5d) / 5)) {
+    pillars.raschke.shortScore += 3
+    pillars.raschke.notes.push('Momentum accelerating down')
+  }
+  // LONG RSI: confirms bullish momentum (not overbought)
   if (indicators.rsi > 55 && indicators.rsi < 75) {
-    pillars.raschke.score += 2
+    pillars.raschke.longScore += 2
     pillars.raschke.notes.push('RSI confirming momentum')
-  } else if (indicators.rsi >= 75) {
-    pillars.raschke.score += 0
-    pillars.raschke.notes.push('RSI extreme - late stage')
   }
-  // Trend alignment: momentum across timeframes
+  // SHORT RSI: confirms bearish momentum (not oversold — no mean reversion)
+  if (indicators.rsi > 25 && indicators.rsi < 45) {
+    pillars.raschke.shortScore += 2
+    pillars.raschke.notes.push('RSI confirming weakness')
+  }
+  // LONG: All timeframes aligned up
   if (indicators.momentum5d > 0 && indicators.momentum10d > 0 && indicators.momentum20d > 0) {
-    pillars.raschke.score += 2
+    pillars.raschke.longScore += 2
     pillars.raschke.notes.push('All timeframes aligned up')
+  }
+  // SHORT: All timeframes aligned down
+  if (indicators.momentum5d < 0 && indicators.momentum10d < 0 && indicators.momentum20d < 0) {
+    pillars.raschke.shortScore += 2
+    pillars.raschke.notes.push('All timeframes aligned down')
   }
 
   // ── SECTOR RS: Relative Strength vs Sector ──
-  // UNIQUE SIGNAL: Is this stock outperforming its peers?
-  // NOT duplicated: Only pillar using relative (not absolute) performance
   if (indicators.sectorRelativeStrength !== null) {
+    // LONG: Outperforming sector
     if (indicators.sectorRelativeStrength > 5) {
-      pillars.sectorRS.score += 5
+      pillars.sectorRS.longScore += 5
       pillars.sectorRS.notes.push(`Beating sector by ${indicators.sectorRelativeStrength.toFixed(1)}%`)
     } else if (indicators.sectorRelativeStrength > 2) {
-      pillars.sectorRS.score += 3
-      pillars.sectorRS.notes.push(`Outperforming sector`)
+      pillars.sectorRS.longScore += 3
     } else if (indicators.sectorRelativeStrength > 0) {
-      pillars.sectorRS.score += 1
-      pillars.sectorRS.notes.push(`Slightly above sector`)
-    } else {
-      pillars.sectorRS.notes.push(`Underperforming sector`)
+      pillars.sectorRS.longScore += 1
     }
-    // 10d relative strength adds orthogonal short-term signal
+    // SHORT: Underperforming sector
+    if (indicators.sectorRelativeStrength < -5) {
+      pillars.sectorRS.shortScore += 5
+      pillars.sectorRS.notes.push(`Lagging sector by ${Math.abs(indicators.sectorRelativeStrength).toFixed(1)}%`)
+    } else if (indicators.sectorRelativeStrength < -2) {
+      pillars.sectorRS.shortScore += 3
+    } else if (indicators.sectorRelativeStrength < 0) {
+      pillars.sectorRS.shortScore += 1
+    }
+    // LONG: Short-term sector leader
     if (indicators.momentum10d > 0 && indicators.sectorRelativeStrength > 0) {
-      pillars.sectorRS.score += 3
+      pillars.sectorRS.longScore += 3
       pillars.sectorRS.notes.push('Short-term sector leader')
     }
-    // Sector itself trending up = tailwind
+    // SHORT: Short-term sector laggard
+    if (indicators.momentum10d < 0 && indicators.sectorRelativeStrength < 0) {
+      pillars.sectorRS.shortScore += 3
+      pillars.sectorRS.notes.push('Short-term sector laggard')
+    }
+    // LONG: Sector tailwind (sector itself trending up)
     if (indicators.sectorMomentum20d > 2) {
-      pillars.sectorRS.score += 2
+      pillars.sectorRS.longScore += 2
       pillars.sectorRS.notes.push('Sector has tailwind')
     }
+    // SHORT: Sector headwind (sector itself trending down)
+    if (indicators.sectorMomentum20d < -2) {
+      pillars.sectorRS.shortScore += 2
+      pillars.sectorRS.notes.push('Sector has headwind')
+    }
   } else {
-    // No sector data - give neutral score so it doesn't penalise
-    pillars.sectorRS.score = 5
+    // No sector data - neutral score so it doesn't penalise either side
+    pillars.sectorRS.longScore = 5
+    pillars.sectorRS.shortScore = 5
     pillars.sectorRS.notes.push('No sector data (neutral)')
+  }
+
+  // Cap all scores to max 10
+  for (const key of Object.keys(pillars)) {
+    pillars[key].longScore = Math.min(pillars[key].max, pillars[key].longScore)
+    pillars[key].shortScore = Math.min(pillars[key].max, pillars[key].shortScore)
   }
 
   return pillars
 }
 
 function determineTradeDirection(pillars, indicators) {
-  // Calculate total pillar score
-  const totalScore = Object.values(pillars).reduce((sum, p) => sum + p.score, 0)
-  const maxScore = Object.values(pillars).reduce((sum, p) => sum + p.max, 0)
-  const scorePercent = (totalScore / maxScore) * 100
+  // =====================================================
+  // BIDIRECTIONAL DIRECTION GATE
+  // Uses dedicated long/short pillar scores for genuine
+  // quality assessment on both sides
+  // =====================================================
+  const maxScore = Object.values(pillars).reduce((sum, p) => sum + p.max, 0) // 60
 
-  // Count pillars passing (score >= 5 out of 10)
-  const passingPillars = Object.values(pillars).filter(p => p.score >= 5).length
+  // Calculate long totals
+  const longTotal = Object.values(pillars).reduce((sum, p) => sum + p.longScore, 0)
+  const longScorePercent = (longTotal / maxScore) * 100
+  const longPassing = Object.values(pillars).filter(p => p.longScore >= 5).length
+
+  // Calculate short totals
+  const shortTotal = Object.values(pillars).reduce((sum, p) => sum + p.shortScore, 0)
+  const shortScorePercent = (shortTotal / maxScore) * 100
+  const shortPassing = Object.values(pillars).filter(p => p.shortScore >= 5).length
 
   const reasoning = []
 
   // LONG criteria
-  // Requires: 4+ pillars passing, price above 20MA (fast trend), positive short-term momentum
-  if (passingPillars >= 4 && scorePercent >= 50 &&
+  // Requires: 4+ long pillars passing, price above 20MA, positive momentum
+  if (longPassing >= 4 && longScorePercent >= 50 &&
       indicators.priceVsMa20 > 0 && indicators.momentum5d > 0) {
-    reasoning.push(`${passingPillars}/6 pillars passing`)
-    reasoning.push(`Score: ${scorePercent.toFixed(0)}%`)
+    reasoning.push(`${longPassing}/6 long pillars passing`)
+    reasoning.push(`Long score: ${longScorePercent.toFixed(0)}%`)
     if (indicators.distanceFrom52High > -5) reasoning.push('At 52w high')
     if (indicators.volumeRatio > 1.2) reasoning.push('Volume confirming')
     if (indicators.atrExpansion > 1.2) reasoning.push('Volatility expanding')
 
     return {
       direction: 'LONG',
-      score: scorePercent,
+      score: longScorePercent,
       reasoning: reasoning.join(', ')
     }
   }
 
-  // SHORT criteria (inverse of long)
-  // Requires: price below 20MA, negative momentum, weak structure
-  const bearishPillars = Object.values(pillars).filter(p => p.score <= 3).length
-
-  if (indicators.priceVsMa20 < -2 && indicators.priceVsMa50 < 0 &&
-      indicators.momentum5d < -2 && indicators.momentum3d < 0 && indicators.rsi < 45) {
-    reasoning.push(`${bearishPillars}/6 pillars bearish`)
-    reasoning.push(`Score: ${(100 - scorePercent).toFixed(0)}%`)
+  // SHORT criteria (now uses genuine short pillar scores)
+  // Requires: 4+ short pillars passing, price below 20MA, negative momentum
+  if (shortPassing >= 4 && shortScorePercent >= 50 &&
+      indicators.priceVsMa20 < -2 && indicators.momentum5d < -2) {
+    reasoning.push(`${shortPassing}/6 short pillars passing`)
+    reasoning.push(`Short score: ${shortScorePercent.toFixed(0)}%`)
     if (indicators.distanceFrom52High < -20) reasoning.push('Far from 52w high')
     if (indicators.momentum10d < -5) reasoning.push('Accelerating down')
 
-    const shortScore = 100 - scorePercent
-
     return {
       direction: 'SHORT',
-      score: Math.max(shortScore, Math.abs(indicators.momentum5d) * 3),
+      score: shortScorePercent,
       reasoning: reasoning.join(', ')
     }
   }
 
   // WATCHLIST criteria - interesting but not ready
-  if (passingPillars >= 2 || indicators.vcpScore > 0) {
-    reasoning.push(`${passingPillars}/6 pillars`)
+  if (longPassing >= 2 || shortPassing >= 2 || indicators.vcpScore > 0) {
+    const bestSide = longScorePercent >= shortScorePercent ? 'long' : 'short'
+    reasoning.push(`${longPassing}/6 long, ${shortPassing}/6 short pillars`)
     if (indicators.vcpScore > 0) reasoning.push('VCP forming - watch for breakout')
     if (indicators.atrExpansion > 1.2) reasoning.push('Volatility expanding')
 
     return {
       direction: 'WATCH',
-      score: scorePercent,
+      score: Math.max(longScorePercent, shortScorePercent),
       reasoning: reasoning.join(', ')
     }
   }
@@ -992,7 +1114,7 @@ function determineTradeDirection(pillars, indicators) {
   // No trade
   return {
     direction: 'NONE',
-    score: scorePercent,
+    score: Math.max(longScorePercent, shortScorePercent),
     reasoning: 'Does not meet criteria'
   }
 }
