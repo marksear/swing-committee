@@ -436,11 +436,17 @@ function computeBarFreshness(timestamps, ticker) {
     return d.toISOString().split('T')[0]
   }
 
-  // Compute expectedBarDate
+  // Compute expectedBarDate (most recent weekday with a completed session)
   let expectedBarDate
   if (nowMinutes >= closeMinutes) {
-    // After market close → expect today's completed bar
-    expectedBarDate = nowLondonDate
+    // After market close today
+    const todayDow = new Date(nowLondonDate + 'T12:00:00Z').getDay()
+    if (todayDow === 0 || todayDow === 6) {
+      // Weekend after close time → expect Friday's bar
+      expectedBarDate = previousWeekday(nowLondonDate)
+    } else {
+      expectedBarDate = nowLondonDate
+    }
   } else {
     // Before market close → expect previous weekday's bar
     expectedBarDate = previousWeekday(nowLondonDate)
@@ -454,8 +460,29 @@ function computeBarFreshness(timestamps, ticker) {
   const [lbDay, lbMonth, lbYear] = lbDatePart.split('/')
   const lastBarDate = `${lbYear}-${lbMonth.padStart(2, '0')}-${lbDay.padStart(2, '0')}`
 
-  const barFresh = lastBarDate === expectedBarDate
-  const barFreshDiag = `BarDate=${lastBarDate} ExpectedBarDate=${expectedBarDate} BarFresh=${barFresh ? 'TRUE' : 'FALSE'}`
+  // Freshness check: exact match = fresh.
+  // But allow 1-2 weekday tolerance for public holidays (no holiday calendar in v1).
+  // Count weekdays between lastBarDate and expectedBarDate.
+  function weekdaysBetween(dateA, dateB) {
+    const a = new Date(dateA + 'T12:00:00Z')
+    const b = new Date(dateB + 'T12:00:00Z')
+    if (a >= b) return 0
+    let count = 0
+    const d = new Date(a)
+    d.setDate(d.getDate() + 1)
+    while (d <= b) {
+      if (d.getDay() !== 0 && d.getDay() !== 6) count++
+      d.setDate(d.getDate() + 1)
+    }
+    return count
+  }
+
+  const exactMatch = lastBarDate === expectedBarDate
+  const weekdayGap = weekdaysBetween(lastBarDate, expectedBarDate)
+  // Fresh if exact match OR within 2 weekdays (covers public holidays)
+  const barFresh = exactMatch || weekdayGap <= 2
+  const freshLabel = exactMatch ? 'TRUE' : weekdayGap <= 2 ? `TRUE (${weekdayGap}d holiday gap)` : 'FALSE'
+  const barFreshDiag = `BarDate=${lastBarDate} ExpectedBarDate=${expectedBarDate} BarFresh=${freshLabel}`
 
   return { barFresh, lastBarDate, expectedBarDate, barFreshDiag }
 }

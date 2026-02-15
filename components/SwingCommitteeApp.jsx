@@ -1046,12 +1046,15 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                         ];
                         const sample = allResults.find(r => r.lastBarDate);
                         if (!sample) return null;
+                        const isHolidayGap = sample.barFresh && sample.lastBarDate !== sample.expectedBarDate;
                         return (
                           <span>
                             <span className="font-medium text-gray-600">Data:</span>{' '}
                             {sample.lastBarDate}
                             {sample.barFresh
-                              ? <span className="text-green-600 ml-1">Fresh</span>
+                              ? isHolidayGap
+                                ? <span className="text-green-600 ml-1">OK (holiday gap)</span>
+                                : <span className="text-green-600 ml-1">Fresh</span>
                               : <span className="text-amber-600 ml-1">Stale (expected {sample.expectedBarDate})</span>
                             }
                           </span>
