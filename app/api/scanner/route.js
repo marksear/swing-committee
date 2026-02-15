@@ -525,54 +525,70 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
       const distToSupport = indicators.distanceToSupport
       const sr = indicators.nearestSupport
 
-      // ── SUPPORT BREAK EXCEPTION (v1) ──
-      // A short INTO support is dangerous (bounce zone), but a short THROUGH
-      // a broken support level is one of the best setups. We need to distinguish.
+      // ── SUPPORT BREAK EXCEPTION (v1.1) ──
+      // Hard gates (MUST pass) + 2-of-3 soft confirms (where available)
       //
-      // Conditions for a confirmed support break:
-      // 1. Close confirmed break: last close ≥ 0.4% below support (not "near")
-      // 2. Momentum confirms: 5-day momentum negative
-      // 3. Volume confirms: last bar volume ≥ 1.2× 20-day avg (real participation)
-      // 4. Freshness: live quote price hasn't reclaimed support (if available)
-      // 5. Candle quality: close in lower 25% of bar range (bearish conviction)
+      // A short INTO support is dangerous (bounce zone), but a short THROUGH
+      // a broken support level is one of the best setups.
+      //
+      // Hard gates:
+      //   1. Close confirmed break: last close ≥ 0.4% below support
+      //   2. Momentum: 5-day momentum negative
+      // Soft confirms (need 2 of 3, only counting available ones):
+      //   A. Volume: last bar ≥ 1.2× 20-day avg
+      //   B. Freshness: live quote hasn't reclaimed support (if quote available)
+      //   C. Candle quality: close in lower 33% of bar range
 
-      const breakPct = 0.004    // 0.4% — confirmed close below, not just "near"
+      const breakPct = 0.004    // 0.4% — confirmed close below
       const reclaimPct = 0.002  // 0.2% — tolerance for freshness check
       const minVolRatio = 1.2   // 1.2× average = real participation
 
-      // 1. Confirmed close break
+      // ── HARD GATES ──
       const closeBreak = indicators.lastClose <= sr.level * (1 - breakPct)
-
-      // 2. Momentum confirms
       const momentumConfirm = indicators.momentum5d < 0
+      const hardPass = closeBreak && momentumConfirm
 
-      // 3. Volume confirms (soft: if volume data missing, don't block)
+      // ── SOFT CONFIRMS (2 of 3 available) ──
+      // A. Volume
       const lastVolRatio = indicators.avgVolume20 > 0
         ? (indicators.lastVolume / indicators.avgVolume20)
         : null
-      const volumeConfirm = (lastVolRatio === null) ? true : (lastVolRatio >= minVolRatio)
+      const volAvailable = lastVolRatio !== null
+      const volPass = volAvailable && lastVolRatio >= minVolRatio
 
-      // 4. Freshness: live quote hasn't reclaimed support
+      // B. Freshness (live quote)
       const livePrice = meta.regularMarketPrice
       const hasLive = livePrice != null && Number.isFinite(livePrice)
-      const notReclaimed = hasLive
-        ? (livePrice <= sr.level * (1 + reclaimPct))
-        : true  // degrade gracefully if no live price
+      const freshnessAvailable = hasLive
+      const freshnessPass = freshnessAvailable && (livePrice <= sr.level * (1 + reclaimPct))
 
-      // 5. Candle quality: close in lower 25% of day's range (bearish conviction)
+      // C. Candle quality (close in lower 33% of bar range)
       const barRange = indicators.lastHigh - indicators.lastLow
       const closePosition = barRange > 0
         ? (indicators.lastClose - indicators.lastLow) / barRange
         : 1
-      const bearishClose = closePosition <= 0.25
+      const candleAvailable = barRange > 0
+      const candlePass = candleAvailable && closePosition <= 0.33
 
-      // Full support break exception: all conditions met
-      const isSupportBreak = closeBreak && momentumConfirm && volumeConfirm && notReclaimed && bearishClose
+      // Count available and passing soft confirms
+      const softAvailable = [volAvailable, freshnessAvailable, candleAvailable].filter(Boolean).length
+      const softPassing = [volPass, freshnessPass, candlePass].filter(Boolean).length
+      // Need 2 of available; if only 1 available, need 1 of 1
+      const softThreshold = Math.min(2, softAvailable)
+      const softPass = softPassing >= softThreshold
+
+      const isSupportBreak = hardPass && softPass
+
+      // ── DIAGNOSTIC LOG ──
+      const hardLog = `hard: closeBreak=${closeBreak ? 'PASS' : 'FAIL'}, mom=${momentumConfirm ? 'PASS' : 'FAIL'}`
+      const softLog = `soft(${softPassing}/${softAvailable}): vol=${volAvailable ? (volPass ? 'PASS' : 'FAIL') : 'N/A'}, fresh=${freshnessAvailable ? (freshnessPass ? 'PASS' : 'FAIL') : 'N/A'}, candle=${candleAvailable ? (candlePass ? 'PASS' : 'FAIL') : 'N/A'}`
+      const breakDiag = `SupportBreak: ${isSupportBreak ? 'PASS' : 'FAIL'} (${hardLog}; ${softLog})`
+      console.log(`[${ticker}] ${breakDiag}`)
 
       if (!isSupportBreak) {
         // Block if support is within 0.5R (shorting into bounce zone)
         if (distToSupport < riskAmount * 0.5) {
-          reasoning = `🛡️ Short blocked: ${sr.type} support at ${sr.level.toFixed(2)} only ${(distToSupport / riskAmount).toFixed(2)}R away. Original: ${direction} - ${reasoning}`
+          reasoning = `🛡️ Short blocked: ${sr.type} support at ${sr.level.toFixed(2)} only ${(distToSupport / riskAmount).toFixed(2)}R away [${breakDiag}]. Original: ${direction} - ${reasoning}`
           if (direction === 'BOTH') {
             direction = 'LONG'
             reasoning = `🛡️ Short side blocked by support → LONG only. ${reasoning}`
@@ -582,7 +598,7 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
         }
         // Air pocket gate: can T1 (1R) be reached before hitting support?
         else if (distToSupport < riskAmount - airPocketBuffer) {
-          reasoning = `🛡️ No air pocket: ${sr.type} at ${sr.level.toFixed(2)} blocks T1. Original: ${direction} - ${reasoning}`
+          reasoning = `🛡️ No air pocket: ${sr.type} at ${sr.level.toFixed(2)} blocks T1 [${breakDiag}]. Original: ${direction} - ${reasoning}`
           if (direction === 'BOTH') {
             direction = 'LONG'
             reasoning = `🛡️ Short T1 blocked by support → LONG only. ${reasoning}`
@@ -592,7 +608,7 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
         }
       } else {
         const volNote = lastVolRatio ? ` vol ${lastVolRatio.toFixed(1)}×` : ''
-        reasoning = `📉 Support break confirmed: close ${((1 - indicators.lastClose / sr.level) * 100).toFixed(1)}% below ${sr.type} ${sr.level.toFixed(2)}${volNote}, bearish candle. ${reasoning}`
+        reasoning = `📉 ${breakDiag}. Close ${((1 - indicators.lastClose / sr.level) * 100).toFixed(1)}% below ${sr.type} ${sr.level.toFixed(2)}${volNote}. ${reasoning}`
       }
     }
 
