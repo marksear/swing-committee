@@ -179,45 +179,119 @@ export async function POST(request) {
     const countLongPassing = (r) => Object.values(r.pillars).filter(p => p.longScore >= 5).length
     const countShortPassing = (r) => Object.values(r.pillars).filter(p => p.shortScore >= 5).length
 
+    // =====================================================
+    // STAGE 3: REGIME FILTER — the strict gate
+    // BOTH direction stocks: regime picks the side
+    // =====================================================
+
+    // Resolve BOTH → LONG or SHORT based on regime, then apply thresholds
+    const resolvedResults = validResults.map(r => {
+      if (r.direction !== 'BOTH') return r
+
+      // Regime picks the favoured side; YELLOW picks the stronger score
+      let resolvedDir
+      if (regimeState === 'GREEN') {
+        resolvedDir = 'LONG'
+      } else if (regimeState === 'RED') {
+        resolvedDir = shortSellingAllowed ? 'SHORT' : 'LONG'  // fallback to long if shorts disabled
+      } else {
+        // YELLOW: pick the stronger side
+        resolvedDir = (r.longScore || 0) >= (r.shortScore || 0) ? 'LONG' : 'SHORT'
+      }
+
+      // Use the score for the resolved direction
+      const resolvedScore = resolvedDir === 'LONG' ? (r.longScore || r.score) : (r.shortScore || r.score)
+
+      // Update pillar .score for the resolved direction
+      const resolvedPillars = { ...r.pillars }
+      for (const [key, pillar] of Object.entries(resolvedPillars)) {
+        resolvedPillars[key] = {
+          ...pillar,
+          score: resolvedDir === 'SHORT' ? pillar.shortScore : pillar.longScore
+        }
+      }
+
+      return {
+        ...r,
+        direction: resolvedDir,
+        score: resolvedScore,
+        pillars: resolvedPillars,
+        reasoning: `Regime ${regimeState} → ${resolvedDir}. ${r.reasoning}`
+      }
+    })
+
     // Filter longs: score threshold + minimum long pillars passing
-    const longCandidates = validResults
+    const longCandidates = resolvedResults
       .filter(r => r.direction === 'LONG')
       .filter(r => r.score >= longScoreThreshold && countLongPassing(r) >= longPillarMin)
 
     // Filter shorts: score threshold + minimum short pillars passing
     const shortCandidates = shortSellingAllowed
-      ? validResults
+      ? resolvedResults
           .filter(r => r.direction === 'SHORT')
           .filter(r => r.score >= shortScoreThreshold && countShortPassing(r) >= shortPillarMin)
       : []
 
-    // Watchlist: lower threshold, for monitoring
-    const watchlistCandidates = validResults
-      .filter(r => r.direction === 'WATCH')
-      .slice(0, 10)
+    // Watchlist: WATCH + anything that didn't make the cut from resolved BOTH/LONG/SHORT
+    const tradeTickers = new Set([
+      ...longCandidates.map(r => r.ticker),
+      ...shortCandidates.map(r => r.ticker)
+    ])
+    const watchlistCandidates = resolvedResults
+      .filter(r => r.direction === 'WATCH' || (r.direction !== 'NONE' && !tradeTickers.has(r.ticker)))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 15)
 
-    // Apply regime size multiplier to £ per point in filtered results
-    // scanTicker uses 1.0x; now scale by actual regime multiplier per direction
-    const applyRegimeMultiplier = (candidates, multiplier) => {
-      if (!acctSize || !riskPct) return candidates
+    // Compute trade management for resolved BOTH candidates (was deferred from scanTicker)
+    // Then apply regime size multiplier to £ per point
+    const finaliseCandidates = (candidates, multiplier) => {
       return candidates.map(c => {
-        if (c.tradeManagement && c.tradeManagement.poundsPerPoint) {
-          return {
-            ...c,
-            tradeManagement: {
-              ...c.tradeManagement,
-              poundsPerPoint: parseFloat((c.tradeManagement.poundsPerPoint * multiplier).toFixed(4)),
-              effectiveRisk: parseFloat((c.tradeManagement.effectiveRisk * multiplier).toFixed(2)),
-              regimeMultiplier: multiplier
-            }
+        let tm = c.tradeManagement
+
+        // If tradeManagement is null (was BOTH, now resolved), compute it
+        if (!tm && c.rawIndicators) {
+          const ri = c.rawIndicators
+          const dir = c.direction
+          const dirPassing = dir === 'SHORT' ? countShortPassing(c) : countLongPassing(c)
+          tm = calculateTradeManagement({
+            currentPrice: ri.currentPrice,
+            atr: ri.atrRaw,
+            direction: dir,
+            recentHigh: ri.recentHigh,
+            recentLow: ri.recentLow,
+            accountSize: acctSize,
+            riskPercent: riskPct,
+            regimeSizeMultiplier: 1.0,
+            score: c.score,
+            pillarsPassing: dirPassing,
+            regimeState,
+            fractalTarget: c.fractalTarget || null,
+            airPocketOk: true,
+            nearestResistance: ri.nearestResistance,
+            nearestSupport: ri.nearestSupport,
+          })
+        }
+
+        // Apply regime size multiplier to £/pt
+        if (tm && tm.poundsPerPoint && acctSize && riskPct) {
+          tm = {
+            ...tm,
+            poundsPerPoint: parseFloat((tm.poundsPerPoint * multiplier).toFixed(4)),
+            effectiveRisk: parseFloat((tm.effectiveRisk * multiplier).toFixed(2)),
+            regimeMultiplier: multiplier
           }
         }
-        return c
+
+        return {
+          ...c,
+          tradeManagement: tm,
+          setupTier: tm?.setupTier || c.setupTier || null,
+        }
       })
     }
 
-    const longResults = applyRegimeMultiplier(longCandidates, longSizeMultiplier)
-    const shortResults = applyRegimeMultiplier(shortCandidates, shortSizeMultiplier)
+    const longResults = finaliseCandidates(longCandidates, longSizeMultiplier)
+    const shortResults = finaliseCandidates(shortCandidates, shortSizeMultiplier)
 
     return Response.json({
       timestamp: new Date().toISOString(),
@@ -380,29 +454,38 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
     const pillars = calculatePillarScores(indicators)
 
     // Determine direction and overall score
-    let { direction, score, reasoning } = determineTradeDirection(pillars, indicators)
+    const directionResult = determineTradeDirection(pillars, indicators)
+    let { direction, score, reasoning } = directionResult
+
+    // =====================================================
+    // BOTH → resolve to best single direction for downstream processing
+    // Store both scores so Stage 3 (regime filter) can pick the regime-aligned side
+    // =====================================================
+    let longScore = directionResult.longScore || null
+    let shortScore = directionResult.shortScore || null
+    let longPassingFromDir = directionResult.longPassing || null
+    let shortPassingFromDir = directionResult.shortPassing || null
 
     // Set backward-compatible .score on each pillar (UI reads p.score)
     for (const [key, pillar] of Object.entries(pillars)) {
-      pillar.score = direction === 'SHORT' ? pillar.shortScore : pillar.longScore
+      pillar.score = (direction === 'SHORT') ? pillar.shortScore : pillar.longScore
     }
 
     // Count passing pillars for the determined direction
-    const pillarsPassing = direction === 'SHORT'
+    const pillarsPassing = (direction === 'SHORT')
       ? Object.values(pillars).filter(p => p.shortScore >= 5).length
       : Object.values(pillars).filter(p => p.longScore >= 5).length
 
     // Fractal target: furthest swing-type structural level in the trade's direction
     // Used to cap T2 at a level the market has actually shown
     let fractalTarget = null
-    if (direction === 'LONG') {
-      // Highest SwingHigh from resistance ladder (sorted ascending → last = furthest)
+    if (direction === 'LONG' || direction === 'BOTH') {
       const swingResistances = (indicators.allResistanceLevels || []).filter(r => r.type === 'SwingHigh')
       fractalTarget = swingResistances.length > 0
         ? swingResistances[swingResistances.length - 1].level
         : null
-    } else if (direction === 'SHORT') {
-      // Lowest SwingLow from support ladder (sorted descending → last = furthest)
+    }
+    if (direction === 'SHORT') {
       const swingSupports = (indicators.allSupportLevels || []).filter(s => s.type === 'SwingLow')
       fractalTarget = swingSupports.length > 0
         ? swingSupports[swingSupports.length - 1].level
@@ -410,91 +493,119 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
     }
 
     // Check earnings proximity (±2 days)
-    // Only check for stocks that would otherwise be LONG or SHORT candidates
     let earningsData = { nearEarnings: false, earningsDate: null, daysUntilEarnings: null, earningsWarning: null }
-    if (direction === 'LONG' || direction === 'SHORT') {
+    if (direction === 'LONG' || direction === 'SHORT' || direction === 'BOTH') {
       earningsData = await checkEarningsProximity(ticker)
     }
 
-    // Check for post-earnings/news volatility spike
-    // If detected, demote LONG/SHORT to WATCH with warning
+    // Safety demotions: earnings / volatility spike → WATCH
     let volatilityWarning = null
     let earningsWarning = null
 
-    // Earnings warning takes priority (more specific)
-    if (earningsData.nearEarnings && (direction === 'LONG' || direction === 'SHORT')) {
+    if (earningsData.nearEarnings && (direction === 'LONG' || direction === 'SHORT' || direction === 'BOTH')) {
       earningsWarning = earningsData.earningsWarning
       reasoning = `📅 ${earningsWarning}. Original signal: ${direction} - ${reasoning}`
       direction = 'WATCH'
     }
-    // Then check volatility spike (if not already demoted)
-    else if (indicators.isVolatilitySpike && (direction === 'LONG' || direction === 'SHORT')) {
+    else if (indicators.isVolatilitySpike && (direction === 'LONG' || direction === 'SHORT' || direction === 'BOTH')) {
       volatilityWarning = indicators.volatilityWarning
       reasoning = `⚠️ ${volatilityWarning}. Original signal: ${direction} - ${reasoning}`
       direction = 'WATCH'
     }
+
     // =====================================================
-    // S/R GUARDRAILS + AIR POCKET GATE
-    // Uses full S/R ladder (fractals, PDH/PDL, period levels, round numbers)
+    // S/R GUARDRAILS + AIR POCKET GATE (Stage 2)
+    // Now regime-aware: shorts can break THROUGH support (not just bounce off it)
     // =====================================================
-    // Calculate R (risk) for air pocket check
-    // R = 1 ATR (our standard stop distance)
     const riskAmount = indicators.atrRaw
     const airPocketBuffer = riskAmount * 0.15  // 0.15R buffer per expert advice
 
     // SHORT guardrail: is there support too close below?
-    if (direction === 'SHORT' && indicators.nearestSupport) {
+    if ((direction === 'SHORT' || direction === 'BOTH') && indicators.nearestSupport) {
       const distToSupport = indicators.distanceToSupport
-      // Block if support is within 0.5R (shorting into bounce zone)
-      if (distToSupport < riskAmount * 0.5) {
-        const sr = indicators.nearestSupport
-        reasoning = `🛡️ Short blocked: ${sr.type} support at ${sr.level.toFixed(2)} only ${(distToSupport / riskAmount).toFixed(2)}R away. Original: SHORT - ${reasoning}`
-        direction = 'WATCH'
-      }
-      // Air pocket gate: can T1 (1R) be reached before hitting support?
-      else if (distToSupport < riskAmount - airPocketBuffer) {
-        const sr = indicators.nearestSupport
-        reasoning = `🛡️ No air pocket: ${sr.type} at ${sr.level.toFixed(2)} blocks T1. Original: SHORT - ${reasoning}`
-        direction = 'WATCH'
+      const sr = indicators.nearestSupport
+      const priceAtOrBelowSupport = indicators.currentPrice <= sr.level * 1.002 // within 0.2%
+
+      // Support break exception: if price is AT or BELOW support AND momentum confirms
+      // breakdown, this is a SUPPORT BREAK short — allow it (Livermore pivot / Darvas expansion down)
+      const isSupportBreak = priceAtOrBelowSupport && indicators.momentum5d < 0
+
+      if (!isSupportBreak) {
+        // Block if support is within 0.5R (shorting into bounce zone)
+        if (distToSupport < riskAmount * 0.5) {
+          reasoning = `🛡️ Short blocked: ${sr.type} support at ${sr.level.toFixed(2)} only ${(distToSupport / riskAmount).toFixed(2)}R away. Original: ${direction} - ${reasoning}`
+          if (direction === 'BOTH') {
+            // BOTH → demote short side, keep as LONG only
+            direction = 'LONG'
+            reasoning = `🛡️ Short side blocked by support → LONG only. ${reasoning}`
+          } else {
+            direction = 'WATCH'
+          }
+        }
+        // Air pocket gate: can T1 (1R) be reached before hitting support?
+        else if (distToSupport < riskAmount - airPocketBuffer) {
+          reasoning = `🛡️ No air pocket: ${sr.type} at ${sr.level.toFixed(2)} blocks T1. Original: ${direction} - ${reasoning}`
+          if (direction === 'BOTH') {
+            direction = 'LONG'
+            reasoning = `🛡️ Short T1 blocked by support → LONG only. ${reasoning}`
+          } else {
+            direction = 'WATCH'
+          }
+        }
+      } else {
+        reasoning = `📉 Support break: price at/below ${sr.type} ${sr.level.toFixed(2)} with downward momentum. ${reasoning}`
       }
     }
+
     // LONG guardrail: is there resistance too close above?
-    else if (direction === 'LONG' && indicators.nearestResistance) {
+    if ((direction === 'LONG' || direction === 'BOTH') && indicators.nearestResistance) {
       const distToResistance = indicators.distanceToResistance
+      const sr = indicators.nearestResistance
       // Block if resistance is within 0.5R (buying into ceiling)
       if (distToResistance < riskAmount * 0.5) {
-        const sr = indicators.nearestResistance
-        reasoning = `🛡️ Long blocked: ${sr.type} resistance at ${sr.level.toFixed(2)} only ${(distToResistance / riskAmount).toFixed(2)}R away. Original: LONG - ${reasoning}`
-        direction = 'WATCH'
+        reasoning = `🛡️ Long blocked: ${sr.type} resistance at ${sr.level.toFixed(2)} only ${(distToResistance / riskAmount).toFixed(2)}R away. Original: ${direction} - ${reasoning}`
+        if (direction === 'BOTH') {
+          // BOTH → demote long side, keep as SHORT only
+          direction = 'SHORT'
+          reasoning = `🛡️ Long side blocked by resistance → SHORT only. ${reasoning}`
+        } else {
+          direction = 'WATCH'
+        }
       }
       // Air pocket gate: can T1 (1R) be reached before hitting resistance?
       else if (distToResistance < riskAmount - airPocketBuffer) {
-        const sr = indicators.nearestResistance
-        reasoning = `🛡️ No air pocket: ${sr.type} at ${sr.level.toFixed(2)} blocks T1. Original: LONG - ${reasoning}`
-        direction = 'WATCH'
+        reasoning = `🛡️ No air pocket: ${sr.type} at ${sr.level.toFixed(2)} blocks T1. Original: ${direction} - ${reasoning}`
+        if (direction === 'BOTH') {
+          direction = 'SHORT'
+          reasoning = `🛡️ Long T1 blocked by resistance → SHORT only. ${reasoning}`
+        } else {
+          direction = 'WATCH'
+        }
       }
     }
 
     // Calculate ATR-based trade management (entry, stop, dynamic targets, £/point)
     // regimeSizeMultiplier = 1.0 here; POST handler adjusts £/pt per regime state
-    const tradeManagement = calculateTradeManagement({
-      currentPrice: indicators.currentPrice,
-      atr: indicators.atrRaw,
-      direction,
-      recentHigh: indicators.recentHigh,
-      recentLow: indicators.recentLow,
-      accountSize,
-      riskPercent,
-      regimeSizeMultiplier: 1.0,
-      // Context for dynamic targets
-      score,
-      pillarsPassing,
-      regimeState,
-      fractalTarget,
-      airPocketOk: (direction === 'LONG' || direction === 'SHORT'),
-      nearestResistance: indicators.nearestResistance,
-      nearestSupport: indicators.nearestSupport,
-    })
+    // For BOTH: trade management uses the stronger side's score; Stage 3 will resolve
+    const tradeManagement = (direction === 'LONG' || direction === 'SHORT')
+      ? calculateTradeManagement({
+          currentPrice: indicators.currentPrice,
+          atr: indicators.atrRaw,
+          direction,
+          recentHigh: indicators.recentHigh,
+          recentLow: indicators.recentLow,
+          accountSize,
+          riskPercent,
+          regimeSizeMultiplier: 1.0,
+          score,
+          pillarsPassing,
+          regimeState,
+          fractalTarget,
+          airPocketOk: true,
+          nearestResistance: indicators.nearestResistance,
+          nearestSupport: indicators.nearestSupport,
+        })
+      : null  // BOTH / WATCH / NONE — trade management computed after Stage 3 resolves direction
 
     // Get entry timing guidance
     const entryTiming = getEntryTiming(ticker)
@@ -509,6 +620,11 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
         : indicators.momentum5d?.toFixed(2) + '%',
       direction,
       score,
+      // For BOTH: include both side scores so Stage 3 can pick the regime-aligned side
+      longScore: longScore || (direction === 'LONG' ? score : null),
+      shortScore: shortScore || (direction === 'SHORT' ? score : null),
+      longPassing: longPassingFromDir,
+      shortPassing: shortPassingFromDir,
       setupTier: tradeManagement?.setupTier || null,
       pillars,
       indicators: {
@@ -538,6 +654,16 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
       // ATR-based trade management
       tradeManagement,
       entryTiming,
+      // Raw indicators for deferred trade management (BOTH → resolved in POST handler)
+      rawIndicators: direction === 'BOTH' ? {
+        currentPrice: indicators.currentPrice,
+        atrRaw: indicators.atrRaw,
+        recentHigh: indicators.recentHigh,
+        recentLow: indicators.recentLow,
+        nearestResistance: indicators.nearestResistance,
+        nearestSupport: indicators.nearestSupport,
+      } : null,
+      fractalTarget,
       // Warnings
       volatilityWarning,
       earningsWarning,
@@ -1453,10 +1579,41 @@ function determineTradeDirection(pillars, indicators) {
 
   const reasoning = []
 
-  // LONG criteria
-  // Requires: 4+ long pillars passing, price above 20MA, positive momentum
-  if (longPassing >= 4 && longScorePercent >= 50 &&
-      indicators.priceVsMa20 > 0 && indicators.momentum5d > 0) {
+  // =====================================================
+  // SYMMETRIC DIRECTION ASSIGNMENT (Stage 1)
+  // Stage 1 is PERMISSIVE — "is there a plausible thesis?"
+  // Stage 3 (regime thresholds) is the STRICT gate
+  // =====================================================
+
+  // Directional signals — symmetric thresholds for both sides
+  const hasLongSignal = indicators.priceVsMa20 > 0 || indicators.momentum5d > 0
+  const hasShortSignal = indicators.priceVsMa20 < 0 || indicators.momentum5d < 0
+
+  // Minimum quality: pillars confirm the thesis
+  const longQualifies = longPassing >= 3 && longScorePercent >= 45 && hasLongSignal
+  const shortQualifies = shortPassing >= 3 && shortScorePercent >= 45 && hasShortSignal
+
+  // ── BOTH: stock is transitioning, let Stage 3 (regime) pick the side ──
+  if (longQualifies && shortQualifies) {
+    // Determine which side is stronger for scoring
+    const strongerSide = longScorePercent >= shortScorePercent ? 'long' : 'short'
+    reasoning.push(`BOTH sides viable: L ${longPassing}/6 (${longScorePercent.toFixed(0)}%), S ${shortPassing}/6 (${shortScorePercent.toFixed(0)}%)`)
+    if (indicators.vcpScore > 0) reasoning.push('VCP forming')
+    if (indicators.atrExpansion > 1.2) reasoning.push('Volatility expanding')
+
+    return {
+      direction: 'BOTH',
+      score: Math.max(longScorePercent, shortScorePercent),
+      longScore: longScorePercent,
+      shortScore: shortScorePercent,
+      longPassing,
+      shortPassing,
+      reasoning: reasoning.join(', ')
+    }
+  }
+
+  // ── LONG: clear long thesis ──
+  if (longQualifies && longPassing >= 4 && longScorePercent >= 50) {
     reasoning.push(`${longPassing}/6 long pillars passing`)
     reasoning.push(`Long score: ${longScorePercent.toFixed(0)}%`)
     if (indicators.distanceFrom52High > -5) reasoning.push('At 52w high')
@@ -1470,10 +1627,8 @@ function determineTradeDirection(pillars, indicators) {
     }
   }
 
-  // SHORT criteria (now uses genuine short pillar scores)
-  // Requires: 4+ short pillars passing, price below 20MA, negative momentum
-  if (shortPassing >= 4 && shortScorePercent >= 50 &&
-      indicators.priceVsMa20 < -2 && indicators.momentum5d < -2) {
+  // ── SHORT: clear short thesis (symmetric with longs — no -2% hard gates) ──
+  if (shortQualifies && shortPassing >= 4 && shortScorePercent >= 50) {
     reasoning.push(`${shortPassing}/6 short pillars passing`)
     reasoning.push(`Short score: ${shortScorePercent.toFixed(0)}%`)
     if (indicators.distanceFrom52High < -20) reasoning.push('Far from 52w high')
@@ -1486,9 +1641,8 @@ function determineTradeDirection(pillars, indicators) {
     }
   }
 
-  // WATCHLIST criteria - interesting but not ready
+  // ── WATCHLIST: some interest but neither side strong enough ──
   if (longPassing >= 2 || shortPassing >= 2 || indicators.vcpScore > 0) {
-    const bestSide = longScorePercent >= shortScorePercent ? 'long' : 'short'
     reasoning.push(`${longPassing}/6 long, ${shortPassing}/6 short pillars`)
     if (indicators.vcpScore > 0) reasoning.push('VCP forming - watch for breakout')
     if (indicators.atrExpansion > 1.2) reasoning.push('Volatility expanding')
