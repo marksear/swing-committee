@@ -993,42 +993,45 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                   </div>
                 ) : scanResults ? (
                   <div className="space-y-4">
-                    {/* Per-Market Regime Gate Status — 3-State Model */}
+                    {/* Per-Market Regime Gate Status — Independent UK/US */}
                     {(() => {
                       const gate = scanResults.regimeGate || { riskOn: true, regimeState: 'GREEN', uk: { riskOn: true }, us: { riskOn: true } };
                       const ukGate = gate.uk || { riskOn: true, aboveMa50: true, distributionDays: 0 };
                       const usGate = gate.us || { riskOn: true, aboveMa50: true, distributionDays: 0 };
-                      const regimeState = gate.regimeState || (gate.riskOn ? 'GREEN' : 'RED');
+                      const ukRegime = gate.ukRegimeState || (ukGate.riskOn ? 'GREEN' : 'RED');
+                      const usRegime = gate.usRegimeState || (usGate.riskOn ? 'GREEN' : 'RED');
 
-                      const regimeConfig = {
-                        GREEN: { icon: '\uD83D\uDFE2', label: 'GREEN', bg: 'bg-green-500', bannerBg: 'bg-green-50', bannerBorder: 'border-green-200', bannerText: 'text-green-800', desc: 'Favour longs \u2022 Full size \u2022 Shorts need 85%+' },
-                        YELLOW: { icon: '\uD83D\uDFE1', label: 'YELLOW', bg: 'bg-amber-500', bannerBg: 'bg-amber-50', bannerBorder: 'border-amber-200', bannerText: 'text-amber-800', desc: 'Mixed signals \u2022 Half size \u2022 Be selective' },
-                        RED: { icon: '\uD83D\uDD34', label: 'RED', bg: 'bg-red-500', bannerBg: 'bg-red-50', bannerBorder: 'border-red-200', bannerText: 'text-red-800', desc: 'Favour shorts \u2022 Full size \u2022 Longs need 85%+' }
+                      const regimeDesc = {
+                        GREEN: 'Favour longs \u2022 Shorts need 85%+',
+                        YELLOW: 'Half size \u2022 Be selective',
+                        RED: 'Favour shorts \u2022 Longs need 85%+'
                       };
-                      const rc = regimeConfig[regimeState] || regimeConfig.YELLOW;
+                      const regimeBg = { GREEN: 'bg-green-500', YELLOW: 'bg-amber-500', RED: 'bg-red-500' };
+                      const regimeBannerBg = { GREEN: 'bg-green-50 border-green-200 text-green-800', YELLOW: 'bg-amber-50 border-amber-200 text-amber-800', RED: 'bg-red-50 border-red-200 text-red-800' };
 
                       return (
                         <div className="relative mb-2 pb-2">
-                          {/* Two-column: UK Market | US Market */}
                           <div className="grid grid-cols-2 gap-2 mb-2">
                             {/* UK Market */}
-                            <div className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm font-bold ${
-                              ukGate.riskOn ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'
-                            }`}>
-                              <span>\uD83C\uDDEC\uD83C\uDDE7 UK {ukGate.riskOn ? 'Risk-On' : 'Risk-Off'}</span>
-                              <span className="text-xs font-normal opacity-90">{ukGate.distributionDays || 0}d dist</span>
+                            <div>
+                              <div className={`flex items-center justify-between px-3 py-2 rounded-t-lg text-sm font-bold ${regimeBg[ukRegime] || 'bg-amber-500'} text-white`}>
+                                <span>{'\uD83C\uDDEC\uD83C\uDDE7'} UK {ukGate.riskOn ? 'Risk-On' : 'Risk-Off'}</span>
+                                <span className="text-xs font-normal opacity-90">{ukGate.distributionDays || 0}d dist</span>
+                              </div>
+                              <div className={`px-2 py-1 rounded-b-lg border text-xs text-center ${regimeBannerBg[ukRegime] || regimeBannerBg.YELLOW}`}>
+                                {regimeDesc[ukRegime]}
+                              </div>
                             </div>
                             {/* US Market */}
-                            <div className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm font-bold ${
-                              usGate.riskOn ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'
-                            }`}>
-                              <span>\uD83C\uDDFA\uD83C\uDDF8 US {usGate.riskOn ? 'Risk-On' : 'Risk-Off'}</span>
-                              <span className="text-xs font-normal opacity-90">{usGate.distributionDays || 0}d dist</span>
+                            <div>
+                              <div className={`flex items-center justify-between px-3 py-2 rounded-t-lg text-sm font-bold ${regimeBg[usRegime] || 'bg-amber-500'} text-white`}>
+                                <span>{'\uD83C\uDDFA\uD83C\uDDF8'} US {usGate.riskOn ? 'Risk-On' : 'Risk-Off'}</span>
+                                <span className="text-xs font-normal opacity-90">{usGate.distributionDays || 0}d dist</span>
+                              </div>
+                              <div className={`px-2 py-1 rounded-b-lg border text-xs text-center ${regimeBannerBg[usRegime] || regimeBannerBg.YELLOW}`}>
+                                {regimeDesc[usRegime]}
+                              </div>
                             </div>
-                          </div>
-                          {/* Regime impact banner — shows combined effect on trading */}
-                          <div className={`${rc.bannerBg} border ${rc.bannerBorder} rounded-lg px-3 py-1.5 text-center ${rc.bannerText} text-xs font-medium`}>
-                            {rc.icon} {rc.desc}
                           </div>
                         </div>
                       );
@@ -1063,27 +1066,30 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                     </div>
                     <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2">
                       <span>Trend: <span className={scanResults.marketTrend === 'up' ? 'text-green-600 font-medium' : scanResults.marketTrend === 'down' ? 'text-red-600 font-medium' : 'text-gray-600'}>{scanResults.marketTrend || 'neutral'}</span></span>
-                      <span>•</span>
-                      <span>Longs ≥{scanResults.thresholds?.long?.score}%</span>
-                      {scanResults.shortSellingAllowed && (
-                        <>
-                          <span>•</span>
-                          <span>Shorts ≥{scanResults.thresholds?.short?.score}%</span>
-                        </>
-                      )}
                       {(() => {
-                        const mult = scanResults.regimeGate?.positionSizeMultiplier;
-                        const longMult = typeof mult === 'object' ? mult?.long : mult;
-                        const shortMult = typeof mult === 'object' ? mult?.short : mult;
-                        const showLong = longMult && longMult < 1;
-                        const showShort = shortMult && shortMult < 1;
-                        if (!showLong && !showShort) return null;
+                        const ukT = scanResults.thresholds?.uk;
+                        const usT = scanResults.thresholds?.us;
+                        const sameThresholds = ukT && usT &&
+                          ukT.long?.score === usT.long?.score &&
+                          ukT.short?.score === usT.short?.score;
+
+                        if (sameThresholds || !ukT || !usT) {
+                          // Same thresholds — show once
+                          return (
+                            <>
+                              <span>•</span>
+                              <span>Longs ≥{scanResults.thresholds?.long?.score}%</span>
+                              {scanResults.shortSellingAllowed && <><span>•</span><span>Shorts ≥{scanResults.thresholds?.short?.score}%</span></>}
+                            </>
+                          );
+                        }
+                        // Different thresholds — show per-market
                         return (
                           <>
                             <span>•</span>
-                            {showLong && <span className="text-amber-600">Long size: {(longMult * 100).toFixed(0)}%</span>}
-                            {showLong && showShort && <span>•</span>}
-                            {showShort && <span className="text-amber-600">Short size: {(shortMult * 100).toFixed(0)}%</span>}
+                            <span>{'\uD83C\uDDEC\uD83C\uDDE7'} L≥{ukT.long?.score}% S≥{ukT.short?.score}%</span>
+                            <span>•</span>
+                            <span>{'\uD83C\uDDFA\uD83C\uDDF8'} L≥{usT.long?.score}% S≥{usT.short?.score}%</span>
                           </>
                         );
                       })()}

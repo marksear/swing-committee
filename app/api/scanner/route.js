@@ -111,26 +111,36 @@ export async function POST(request) {
     const riskPct = riskPerTrade ? parseFloat(riskPerTrade) : null
 
     // ========================================
-    // REGIME GATE - 3-State Model with Alignment
+    // REGIME GATE - Per-Market 3-State Model
     // ========================================
-    // Computed BEFORE scan loop so scanTicker can use regimeState for dynamic targets
-    // GREEN: Risk-On + up/neutral trend → favour longs, full size
-    // RED:   Risk-Off OR down trend → favour shorts, full size
-    // YELLOW: Mixed signals → both sides elevated threshold, half size
+    // Each market gets its own regime state so UK and US are judged independently.
+    // A UK Risk-On + US Risk-Off scenario means UK stocks get GREEN thresholds
+    // (favour longs) while US stocks get RED thresholds (favour shorts).
     const isRiskOn = regimeGate.riskOn
+    const ukRiskOn = regimeGate.uk?.riskOn ?? isRiskOn
+    const usRiskOn = regimeGate.us?.riskOn ?? isRiskOn
 
-    let regimeState  // GREEN, YELLOW, RED
-    if (isRiskOn && (marketTrend === 'up' || marketTrend === 'neutral')) {
-      regimeState = 'GREEN'
-    } else if (!isRiskOn || marketTrend === 'down') {
-      regimeState = 'RED'
-    } else {
-      regimeState = 'YELLOW'
+    function deriveRegimeState(marketRiskOn) {
+      if (marketRiskOn && (marketTrend === 'up' || marketTrend === 'neutral')) return 'GREEN'
+      if (!marketRiskOn || marketTrend === 'down') return 'RED'
+      return 'YELLOW'
     }
 
-    // Fetch historical data for all tickers
+    const ukRegimeState = deriveRegimeState(ukRiskOn)
+    const usRegimeState = deriveRegimeState(usRiskOn)
+    // Combined regime for display purposes (conservative: worst of both)
+    const regimeState = (ukRegimeState === 'RED' || usRegimeState === 'RED') ? 'RED'
+      : (ukRegimeState === 'YELLOW' || usRegimeState === 'YELLOW') ? 'YELLOW'
+      : 'GREEN'
+
+    console.log(`Regime: UK=${ukRegimeState}, US=${usRegimeState}, Combined=${regimeState}`)
+
+    // Fetch historical data — each ticker gets its OWN market's regime state
     const scanResults = await Promise.all(
-      tickersToScan.map(ticker => scanTicker(ticker, mode, acctSize, riskPct, regimeState))
+      tickersToScan.map(ticker => {
+        const tickerRegime = ticker.endsWith('.L') ? ukRegimeState : usRegimeState
+        return scanTicker(ticker, mode, acctSize, riskPct, tickerRegime)
+      })
     )
 
     // Filter out errors and sort by score
@@ -138,71 +148,60 @@ export async function POST(request) {
       .filter(r => r && !r.error && r.score !== null)
       .sort((a, b) => b.score - a.score)
 
-    // Thresholds by regime: WITH the tape = standard, AGAINST = exceptional
-    let longScoreThreshold, shortScoreThreshold, longPillarMin, shortPillarMin
-    let longSizeMultiplier = 1.0, shortSizeMultiplier = 1.0
+    // =====================================================
+    // STAGE 3: PER-MARKET REGIME FILTER — the strict gate
+    // UK and US stocks get their OWN regime thresholds
+    // =====================================================
 
-    switch (regimeState) {
-      case 'GREEN':
-        // Longs: standard (aligned with tape)
-        longScoreThreshold = 70
-        longPillarMin = 4
-        longSizeMultiplier = 1.0
-        // Shorts: need exceptional quality (fighting the tape)
-        shortScoreThreshold = 85
-        shortPillarMin = 5
-        shortSizeMultiplier = 0.5
-        break
-      case 'RED':
-        // Shorts: standard (aligned with tape)
-        shortScoreThreshold = 70
-        shortPillarMin = 4
-        shortSizeMultiplier = 1.0
-        // Longs: need exceptional quality (fighting the tape)
-        longScoreThreshold = 85
-        longPillarMin = 5
-        longSizeMultiplier = 0.5
-        break
-      case 'YELLOW':
-      default:
-        // Both sides: elevated threshold, half size, be picky
-        longScoreThreshold = 75
-        shortScoreThreshold = 75
-        longPillarMin = 4
-        shortPillarMin = 4
-        longSizeMultiplier = 0.5
-        shortSizeMultiplier = 0.5
-        break
+    // Thresholds by regime state
+    function getRegimeThresholds(state) {
+      switch (state) {
+        case 'GREEN': return {
+          longScore: 70, longPillars: 4, longSize: 1.0,
+          shortScore: 85, shortPillars: 5, shortSize: 0.5
+        }
+        case 'RED': return {
+          longScore: 85, longPillars: 5, longSize: 0.5,
+          shortScore: 70, shortPillars: 4, shortSize: 1.0
+        }
+        case 'YELLOW': default: return {
+          longScore: 75, longPillars: 4, longSize: 0.5,
+          shortScore: 75, shortPillars: 4, shortSize: 0.5
+        }
+      }
     }
 
-    // Count passing pillars using bidirectional scores
+    const ukThresholds = getRegimeThresholds(ukRegimeState)
+    const usThresholds = getRegimeThresholds(usRegimeState)
+
+    // Per-ticker threshold lookup
+    function getThresholds(ticker) {
+      return ticker.endsWith('.L') ? ukThresholds : usThresholds
+    }
+    function getTickerRegime(ticker) {
+      return ticker.endsWith('.L') ? ukRegimeState : usRegimeState
+    }
+
     const countLongPassing = (r) => Object.values(r.pillars).filter(p => p.longScore >= 5).length
     const countShortPassing = (r) => Object.values(r.pillars).filter(p => p.shortScore >= 5).length
 
-    // =====================================================
-    // STAGE 3: REGIME FILTER — the strict gate
-    // BOTH direction stocks: regime picks the side
-    // =====================================================
-
-    // Resolve BOTH → LONG or SHORT based on regime, then apply thresholds
+    // Resolve BOTH → LONG or SHORT based on each ticker's OWN market regime
     const resolvedResults = validResults.map(r => {
       if (r.direction !== 'BOTH') return r
 
-      // Regime picks the favoured side; YELLOW picks the stronger score
+      const tickerRegime = getTickerRegime(r.ticker)
+
       let resolvedDir
-      if (regimeState === 'GREEN') {
+      if (tickerRegime === 'GREEN') {
         resolvedDir = 'LONG'
-      } else if (regimeState === 'RED') {
-        resolvedDir = shortSellingAllowed ? 'SHORT' : 'LONG'  // fallback to long if shorts disabled
+      } else if (tickerRegime === 'RED') {
+        resolvedDir = shortSellingAllowed ? 'SHORT' : 'LONG'
       } else {
-        // YELLOW: pick the stronger side
         resolvedDir = (r.longScore || 0) >= (r.shortScore || 0) ? 'LONG' : 'SHORT'
       }
 
-      // Use the score for the resolved direction
       const resolvedScore = resolvedDir === 'LONG' ? (r.longScore || r.score) : (r.shortScore || r.score)
 
-      // Update pillar .score for the resolved direction
       const resolvedPillars = { ...r.pillars }
       for (const [key, pillar] of Object.entries(resolvedPillars)) {
         resolvedPillars[key] = {
@@ -216,23 +215,29 @@ export async function POST(request) {
         direction: resolvedDir,
         score: resolvedScore,
         pillars: resolvedPillars,
-        reasoning: `Regime ${regimeState} → ${resolvedDir}. ${r.reasoning}`
+        reasoning: `${r.ticker.endsWith('.L') ? 'UK' : 'US'} regime ${tickerRegime} → ${resolvedDir}. ${r.reasoning}`
       }
     })
 
-    // Filter longs: score threshold + minimum long pillars passing
+    // Filter longs: per-ticker thresholds based on market regime
     const longCandidates = resolvedResults
       .filter(r => r.direction === 'LONG')
-      .filter(r => r.score >= longScoreThreshold && countLongPassing(r) >= longPillarMin)
+      .filter(r => {
+        const t = getThresholds(r.ticker)
+        return r.score >= t.longScore && countLongPassing(r) >= t.longPillars
+      })
 
-    // Filter shorts: score threshold + minimum short pillars passing
+    // Filter shorts: per-ticker thresholds based on market regime
     const shortCandidates = shortSellingAllowed
       ? resolvedResults
           .filter(r => r.direction === 'SHORT')
-          .filter(r => r.score >= shortScoreThreshold && countShortPassing(r) >= shortPillarMin)
+          .filter(r => {
+            const t = getThresholds(r.ticker)
+            return r.score >= t.shortScore && countShortPassing(r) >= t.shortPillars
+          })
       : []
 
-    // Watchlist: WATCH + anything that didn't make the cut from resolved BOTH/LONG/SHORT
+    // Watchlist: anything that didn't make the cut
     const tradeTickers = new Set([
       ...longCandidates.map(r => r.ticker),
       ...shortCandidates.map(r => r.ticker)
@@ -242,11 +247,20 @@ export async function POST(request) {
       .sort((a, b) => b.score - a.score)
       .slice(0, 15)
 
+    // For display: use per-market thresholds
+    const longScoreThreshold = Math.min(ukThresholds.longScore, usThresholds.longScore)
+    const shortScoreThreshold = Math.min(ukThresholds.shortScore, usThresholds.shortScore)
+    const longPillarMin = Math.min(ukThresholds.longPillars, usThresholds.longPillars)
+    const shortPillarMin = Math.min(ukThresholds.shortPillars, usThresholds.shortPillars)
+
     // Compute trade management for resolved BOTH candidates (was deferred from scanTicker)
-    // Then apply regime size multiplier to £ per point
-    const finaliseCandidates = (candidates, multiplier) => {
+    // Then apply per-ticker regime size multiplier to £ per point
+    const finaliseCandidates = (candidates, sideKey) => {
       return candidates.map(c => {
         let tm = c.tradeManagement
+        const tickerRegime = getTickerRegime(c.ticker)
+        const t = getThresholds(c.ticker)
+        const multiplier = sideKey === 'long' ? t.longSize : t.shortSize
 
         // If tradeManagement is null (was BOTH, now resolved), compute it
         if (!tm && c.rawIndicators) {
@@ -264,7 +278,7 @@ export async function POST(request) {
             regimeSizeMultiplier: 1.0,
             score: c.score,
             pillarsPassing: dirPassing,
-            regimeState,
+            regimeState: tickerRegime,
             fractalTarget: c.fractalTarget || null,
             airPocketOk: true,
             nearestResistance: ri.nearestResistance,
@@ -272,7 +286,7 @@ export async function POST(request) {
           })
         }
 
-        // Apply regime size multiplier to £/pt
+        // Apply per-ticker regime size multiplier to £/pt
         if (tm && tm.poundsPerPoint && acctSize && riskPct) {
           tm = {
             ...tm,
@@ -290,8 +304,8 @@ export async function POST(request) {
       })
     }
 
-    const longResults = finaliseCandidates(longCandidates, longSizeMultiplier)
-    const shortResults = finaliseCandidates(shortCandidates, shortSizeMultiplier)
+    const longResults = finaliseCandidates(longCandidates, 'long')
+    const shortResults = finaliseCandidates(shortCandidates, 'short')
 
     return Response.json({
       timestamp: new Date().toISOString(),
@@ -299,18 +313,25 @@ export async function POST(request) {
       instruments,
       shortSellingAllowed,
       marketTrend,
-      // Regime Gate status - 3-state model
+      // Regime Gate status - per-market 3-state model
       regimeGate: {
         riskOn: isRiskOn,
-        regimeState,  // GREEN, YELLOW, RED
-        uk: regimeGate.uk || { riskOn: true, aboveMa50: true, distributionDays: 0 },
-        us: regimeGate.us || { riskOn: true, aboveMa50: true, distributionDays: 0 },
+        regimeState,  // Combined (conservative)
+        ukRegimeState,
+        usRegimeState,
+        uk: { ...(regimeGate.uk || { riskOn: true, aboveMa50: true, distributionDays: 0 }), regimeState: ukRegimeState },
+        us: { ...(regimeGate.us || { riskOn: true, aboveMa50: true, distributionDays: 0 }), regimeState: usRegimeState },
         positionSizeMultiplier: {
-          long: longSizeMultiplier,
-          short: shortSizeMultiplier
+          // Per-market multipliers — show the "with-tape" side for each
+          ukLong: ukThresholds.longSize, ukShort: ukThresholds.shortSize,
+          usLong: usThresholds.longSize, usShort: usThresholds.shortSize,
         }
       },
       thresholds: {
+        // Per-market thresholds
+        uk: { long: { score: ukThresholds.longScore, pillars: ukThresholds.longPillars }, short: { score: ukThresholds.shortScore, pillars: ukThresholds.shortPillars } },
+        us: { long: { score: usThresholds.longScore, pillars: usThresholds.longPillars }, short: { score: usThresholds.shortScore, pillars: usThresholds.shortPillars } },
+        // Combined (for backward compat / simple display)
         long: { score: longScoreThreshold, pillars: longPillarMin },
         short: { score: shortScoreThreshold, pillars: shortPillarMin }
       },
