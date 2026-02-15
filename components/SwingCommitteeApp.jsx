@@ -957,6 +957,7 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                 )}
               </button>
             </div>
+            <p className="text-xs text-gray-400 text-center -mt-1 mb-1">Best run pre-market for freshest daily data</p>
 
             {/* Scanner Results Panel */}
             {showScanner && (
@@ -1034,8 +1035,28 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                     })()}
 
                     {/* Universe + Scan Info */}
-                    <div className="text-xs text-gray-500 mb-1">
-                      <span className="font-medium text-gray-600">Universe:</span> S&P 100 + NQ 25 + FTSE 50 ({scanResults.totalScanned || '—'} stocks scanned)
+                    <div className="text-xs text-gray-500 mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                      <span><span className="font-medium text-gray-600">Universe:</span> S&P 100 + NQ 25 + FTSE 50 ({scanResults.totalScanned || '—'} scanned)</span>
+                      {(() => {
+                        // Show bar freshness from first available result
+                        const allResults = [
+                          ...(scanResults.results?.long || []),
+                          ...(scanResults.results?.short || []),
+                          ...(scanResults.results?.watchlist || [])
+                        ];
+                        const sample = allResults.find(r => r.lastBarDate);
+                        if (!sample) return null;
+                        return (
+                          <span>
+                            <span className="font-medium text-gray-600">Data:</span>{' '}
+                            {sample.lastBarDate}
+                            {sample.barFresh
+                              ? <span className="text-green-600 ml-1">Fresh</span>
+                              : <span className="text-amber-600 ml-1">Stale (expected {sample.expectedBarDate})</span>
+                            }
+                          </span>
+                        );
+                      })()}
                     </div>
                     <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2">
                       <span>Trend: <span className={scanResults.marketTrend === 'up' ? 'text-green-600 font-medium' : scanResults.marketTrend === 'down' ? 'text-red-600 font-medium' : 'text-gray-600'}>{scanResults.marketTrend || 'neutral'}</span></span>
