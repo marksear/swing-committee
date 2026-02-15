@@ -398,6 +398,68 @@ async function checkEarningsProximity(ticker) {
   }
 }
 
+// =====================================================
+// DAILY BAR FRESHNESS
+// Determines whether the last daily bar from Yahoo is the expected
+// completed session bar, based on market close times in Europe/London.
+// =====================================================
+function computeBarFreshness(timestamps, ticker) {
+  if (!timestamps || timestamps.length === 0) {
+    return { barFresh: false, lastBarDate: null, expectedBarDate: null, barFreshDiag: 'BarFresh=UNKNOWN (no timestamps)' }
+  }
+
+  const isUK = ticker.endsWith('.L')
+
+  // Market close times in Europe/London local time
+  // UK: 16:30 London | US: 21:00 London (covers EST→London conversion)
+  const closeHour = isUK ? 16 : 21
+  const closeMinute = isUK ? 30 : 0
+
+  // Current time in Europe/London
+  const nowUTC = new Date()
+  const nowLondonStr = nowUTC.toLocaleString('en-GB', { timeZone: 'Europe/London' })
+  // Parse "DD/MM/YYYY, HH:MM:SS" format
+  const [datePart, timePart] = nowLondonStr.split(', ')
+  const [day, month, year] = datePart.split('/')
+  const [hour, minute] = timePart.split(':').map(Number)
+  const nowLondonDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+  const nowMinutes = hour * 60 + minute
+  const closeMinutes = closeHour * 60 + closeMinute
+
+  // Helper: previous weekday (skip Sat/Sun)
+  function previousWeekday(dateStr) {
+    const d = new Date(dateStr + 'T12:00:00Z') // noon UTC to avoid DST edge
+    d.setDate(d.getDate() - 1)
+    while (d.getDay() === 0 || d.getDay() === 6) {
+      d.setDate(d.getDate() - 1)
+    }
+    return d.toISOString().split('T')[0]
+  }
+
+  // Compute expectedBarDate
+  let expectedBarDate
+  if (nowMinutes >= closeMinutes) {
+    // After market close → expect today's completed bar
+    expectedBarDate = nowLondonDate
+  } else {
+    // Before market close → expect previous weekday's bar
+    expectedBarDate = previousWeekday(nowLondonDate)
+  }
+
+  // Last bar date from Yahoo timestamps (Unix epoch seconds → London date)
+  const lastTimestamp = timestamps[timestamps.length - 1]
+  const lastBarUTC = new Date(lastTimestamp * 1000)
+  const lastBarLondonStr = lastBarUTC.toLocaleString('en-GB', { timeZone: 'Europe/London' })
+  const [lbDatePart] = lastBarLondonStr.split(', ')
+  const [lbDay, lbMonth, lbYear] = lbDatePart.split('/')
+  const lastBarDate = `${lbYear}-${lbMonth.padStart(2, '0')}-${lbDay.padStart(2, '0')}`
+
+  const barFresh = lastBarDate === expectedBarDate
+  const barFreshDiag = `BarDate=${lastBarDate} ExpectedBarDate=${expectedBarDate} BarFresh=${barFresh ? 'TRUE' : 'FALSE'}`
+
+  return { barFresh, lastBarDate, expectedBarDate, barFreshDiag }
+}
+
 async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, regimeState = 'YELLOW') {
   try {
     // Fetch 90 days of daily data for short-term momentum analysis
@@ -439,6 +501,10 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
     if (validCloses.length < 50) {
       return { ticker, error: 'Too many gaps' }
     }
+
+    // Daily bar freshness check
+    const barFreshness = computeBarFreshness(timestamps, ticker)
+    console.log(`[${ticker}] ${barFreshness.barFreshDiag}`)
 
     // Calculate technical indicators
     const indicators = calculateIndicators(closes, highs, lows, volumes)
@@ -525,63 +591,94 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
       const distToSupport = indicators.distanceToSupport
       const sr = indicators.nearestSupport
 
-      // ── SUPPORT BREAK EXCEPTION (v1.1) ──
-      // Hard gates (MUST pass) + 2-of-3 soft confirms (where available)
-      //
+      // ── SUPPORT BREAK EXCEPTION v1.1 (final spec) ──
       // A short INTO support is dangerous (bounce zone), but a short THROUGH
       // a broken support level is one of the best setups.
       //
-      // Hard gates:
-      //   1. Close confirmed break: last close ≥ 0.4% below support
-      //   2. Momentum: 5-day momentum negative
-      // Soft confirms (need 2 of 3, only counting available ones):
-      //   A. Volume: last bar ≥ 1.2× 20-day avg
-      //   B. Freshness: live quote hasn't reclaimed support (if quote available)
-      //   C. Candle quality: close in lower 33% of bar range
+      // Hard gates (MUST pass):
+      //   1. Close break: close <= support × (1 - 0.004)
+      //   2. Momentum: momentum5d < 0
+      //
+      // Soft confirms (need 2 of available; if 1 available need 1; if 0 available → pass):
+      //   A. Volume:    lastBarVol / avgVol20 >= 1.2
+      //   B. Freshness: livePrice <= support × 1.002 (if live quote exists)
+      //   C. Candle:    close in bottom 33% of bar range (if range > 0)
+      //
+      // All OHLCV conditions use the SAME bar index i = closes.length - 1
 
-      const breakPct = 0.004    // 0.4% — confirmed close below
-      const reclaimPct = 0.002  // 0.2% — tolerance for freshness check
-      const minVolRatio = 1.2   // 1.2× average = real participation
+      const breakPct = 0.004       // 0.4% confirmed close below
+      const reclaimPct = 0.002     // 0.2% reclaim tolerance
+      const minVolRatio = 1.2      // 1.2× avg = real participation
+      const candleBottomFrac = 0.33 // bottom 33% of range
 
       // ── HARD GATES ──
       const closeBreak = indicators.lastClose <= sr.level * (1 - breakPct)
-      const momentumConfirm = indicators.momentum5d < 0
-      const hardPass = closeBreak && momentumConfirm
+      const momBreak = indicators.momentum5d < 0
+      const hardPass = closeBreak && momBreak
 
-      // ── SOFT CONFIRMS (2 of 3 available) ──
-      // A. Volume
-      const lastVolRatio = indicators.avgVolume20 > 0
-        ? (indicators.lastVolume / indicators.avgVolume20)
-        : null
-      const volAvailable = lastVolRatio !== null
-      const volPass = volAvailable && lastVolRatio >= minVolRatio
+      // ── SOFT CONFIRMS ──
+      let softAvailable = 0
+      let softPassed = 0
 
-      // B. Freshness (live quote)
+      // A. Volume (counted only if vol and avgVol20 exist and > 0)
+      const lastVol = indicators.lastVolume
+      const avgVol20 = indicators.avgVolume20
+      const volAvailable = lastVol != null && avgVol20 != null && avgVol20 > 0
+      let volStatus = 'NOT_COUNTED'
+      let lastVolRatio = null
+      if (volAvailable) {
+        softAvailable++
+        lastVolRatio = lastVol / avgVol20
+        if (lastVolRatio >= minVolRatio) {
+          softPassed++
+          volStatus = 'PASS'
+        } else {
+          volStatus = 'FAIL'
+        }
+      }
+
+      // B. Freshness (counted only if livePrice exists)
       const livePrice = meta.regularMarketPrice
-      const hasLive = livePrice != null && Number.isFinite(livePrice)
-      const freshnessAvailable = hasLive
-      const freshnessPass = freshnessAvailable && (livePrice <= sr.level * (1 + reclaimPct))
+      const freshAvailable = livePrice != null && Number.isFinite(livePrice)
+      let freshStatus = 'NOT_COUNTED'
+      if (freshAvailable) {
+        softAvailable++
+        if (livePrice <= sr.level * (1 + reclaimPct)) {
+          softPassed++
+          freshStatus = 'PASS'
+        } else {
+          freshStatus = 'FAIL'
+        }
+      }
 
-      // C. Candle quality (close in lower 33% of bar range)
+      // C. Candle quality (counted only if bar has range > 0)
       const barRange = indicators.lastHigh - indicators.lastLow
-      const closePosition = barRange > 0
-        ? (indicators.lastClose - indicators.lastLow) / barRange
-        : 1
       const candleAvailable = barRange > 0
-      const candlePass = candleAvailable && closePosition <= 0.33
+      let candleStatus = 'NOT_COUNTED'
+      let closePos = null
+      if (candleAvailable) {
+        softAvailable++
+        closePos = (indicators.lastClose - indicators.lastLow) / barRange
+        if (closePos <= candleBottomFrac) {
+          softPassed++
+          candleStatus = 'PASS'
+        } else {
+          candleStatus = 'FAIL'
+        }
+      }
 
-      // Count available and passing soft confirms
-      const softAvailable = [volAvailable, freshnessAvailable, candleAvailable].filter(Boolean).length
-      const softPassing = [volPass, freshnessPass, candlePass].filter(Boolean).length
-      // Need 2 of available; if only 1 available, need 1 of 1
-      const softThreshold = Math.min(2, softAvailable)
-      const softPass = softPassing >= softThreshold
+      // Soft pass rule: 0 available → pass; 1 available → need 1; 2+ → need 2
+      const softOK = softAvailable === 0
+        ? true
+        : softAvailable === 1
+          ? softPassed >= 1
+          : softPassed >= 2
 
-      const isSupportBreak = hardPass && softPass
+      const isSupportBreak = hardPass && softOK
 
       // ── DIAGNOSTIC LOG ──
-      const hardLog = `hard: closeBreak=${closeBreak ? 'PASS' : 'FAIL'}, mom=${momentumConfirm ? 'PASS' : 'FAIL'}`
-      const softLog = `soft(${softPassing}/${softAvailable}): vol=${volAvailable ? (volPass ? 'PASS' : 'FAIL') : 'N/A'}, fresh=${freshnessAvailable ? (freshnessPass ? 'PASS' : 'FAIL') : 'N/A'}, candle=${candleAvailable ? (candlePass ? 'PASS' : 'FAIL') : 'N/A'}`
+      const hardLog = `hard: closeBreak=${closeBreak ? 'PASS' : 'FAIL'}, mom=${momBreak ? 'PASS' : 'FAIL'}`
+      const softLog = `soft(${softPassed}/${softAvailable}): vol=${volStatus}, fresh=${freshStatus}, candle=${candleStatus}`
       const breakDiag = `SupportBreak: ${isSupportBreak ? 'PASS' : 'FAIL'} (${hardLog}; ${softLog})`
       console.log(`[${ticker}] ${breakDiag}`)
 
@@ -719,6 +816,10 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
         nearestSupport: indicators.nearestSupport,
       } : null,
       fractalTarget,
+      // Bar freshness
+      barFresh: barFreshness.barFresh,
+      lastBarDate: barFreshness.lastBarDate,
+      expectedBarDate: barFreshness.expectedBarDate,
       // Warnings
       volatilityWarning,
       earningsWarning,
