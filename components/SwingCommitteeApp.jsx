@@ -1033,7 +1033,10 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                       );
                     })()}
 
-                    {/* Scan Info */}
+                    {/* Universe + Scan Info */}
+                    <div className="text-xs text-gray-500 mb-1">
+                      <span className="font-medium text-gray-600">Universe:</span> S&P 100 + NQ 25 + FTSE 50 ({scanResults.totalScanned || '—'} stocks scanned)
+                    </div>
                     <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2">
                       <span>Trend: <span className={scanResults.marketTrend === 'up' ? 'text-green-600 font-medium' : scanResults.marketTrend === 'down' ? 'text-red-600 font-medium' : 'text-gray-600'}>{scanResults.marketTrend || 'neutral'}</span></span>
                       <span>•</span>

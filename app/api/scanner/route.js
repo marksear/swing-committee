@@ -3,15 +3,26 @@
 
 // Universe of instruments to scan
 const UNIVERSE = {
-  // Top 50 S&P 500 by market cap + liquid names
+  // S&P 100 (top 100 by market cap) + top 25 Nasdaq-100 not in S&P 100
+  // ~125 unique US names covering mega-cap and large-cap growth/tech
   usStocks: [
-    'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'BRK-B', 'UNH', 'JNJ',
-    'V', 'XOM', 'JPM', 'PG', 'MA', 'HD', 'CVX', 'MRK', 'ABBV', 'PEP',
-    'KO', 'COST', 'AVGO', 'LLY', 'WMT', 'MCD', 'CSCO', 'ACN', 'TMO', 'ABT',
-    'CRM', 'DHR', 'NKE', 'VZ', 'ADBE', 'CMCSA', 'NFLX', 'INTC', 'AMD', 'QCOM',
-    'TXN', 'PM', 'UNP', 'NEE', 'RTX', 'HON', 'LOW', 'BA', 'SPGI', 'CAT'
+    // ── S&P 100 (by market cap) ──
+    'NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'TSLA', 'AVGO', 'BRK-B', 'WMT',
+    'LLY', 'JPM', 'XOM', 'V', 'JNJ', 'MA', 'ORCL', 'COST', 'ABBV', 'HD',
+    'BAC', 'PG', 'CVX', 'CAT', 'KO', 'AMD', 'GE', 'NFLX', 'PLTR', 'CSCO',
+    'MRK', 'PM', 'GS', 'MS', 'WFC', 'RTX', 'UNH', 'IBM', 'TMUS', 'INTC',
+    'MCD', 'AXP', 'PEP', 'LIN', 'VZ', 'TXN', 'T', 'AMGN', 'ABT', 'NEE',
+    'C', 'GILD', 'BA', 'TMO', 'DIS', 'CRM', 'ISRG', 'SCHW', 'BLK', 'DE',
+    'LOW', 'PFE', 'UNP', 'HON', 'DHR', 'LMT', 'QCOM', 'UBER', 'ACN', 'COP',
+    'BKNG', 'COF', 'MDT', 'BMY', 'CMCSA', 'MO', 'NOW', 'INTU', 'ADBE', 'SBUX',
+    'SO', 'UPS', 'CVS', 'DUK', 'GD', 'NKE', 'MMM', 'AMT', 'USB', 'FDX',
+    'EMR', 'BK', 'MDLZ', 'CL', 'GM', 'SPG', 'TGT', 'MET', 'AIG', 'PYPL',
+    // ── Nasdaq-100 top 25 NOT in S&P 100 ──
+    'ASML', 'LRCX', 'AMAT', 'KLAC', 'ADI', 'SHOP', 'PDD', 'PANW', 'ARM', 'APP',
+    'CRWD', 'CEG', 'MELI', 'WDC', 'MAR', 'STX', 'ADP', 'REGN', 'SNPS', 'CDNS',
+    'ORLY', 'MNST', 'CTAS', 'CSX', 'ABNB'
   ],
-  // FTSE 100 most liquid names
+  // FTSE 100 — top 50 most liquid by market cap
   ukStocks: [
     'SHEL.L', 'AZN.L', 'HSBA.L', 'ULVR.L', 'BP.L', 'GSK.L', 'RIO.L', 'REL.L', 'DGE.L', 'BATS.L',
     'LSEG.L', 'NG.L', 'AAL.L', 'GLEN.L', 'VOD.L', 'BHP.L', 'PRU.L', 'LLOY.L', 'BARC.L', 'RKT.L',
