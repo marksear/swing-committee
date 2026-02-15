@@ -6,10 +6,10 @@ const client = new Anthropic({
 
 export async function POST(request) {
   try {
-    const { formData, marketPulse, livePrices } = await request.json()
+    const { formData, marketPulse, livePrices, scannerResults } = await request.json()
 
     // Build the full Swing Committee prompt
-    const prompt = buildFullPrompt(formData, marketPulse, livePrices)
+    const prompt = buildFullPrompt(formData, marketPulse, livePrices, scannerResults)
 
     // Call Claude API with extended token limit for comprehensive analysis
     const message = await client.messages.create({
@@ -37,7 +37,7 @@ export async function POST(request) {
   }
 }
 
-function buildFullPrompt(formData, marketPulse, livePrices = {}) {
+function buildFullPrompt(formData, marketPulse, livePrices = {}, scannerResults = null) {
   const hasWatchlist = formData.watchlist && formData.watchlist.trim().length > 0
   const hasPositions = formData.openPositions && formData.openPositions.trim().length > 0
   const hasLivePrices = livePrices && Object.keys(livePrices).length > 0
@@ -887,6 +887,8 @@ For each open position, provide:
 
 ---` : '# CURRENT OPEN POSITIONS\n\nNo open positions.\n\n---'}
 
+${buildScannerGateSection(scannerResults)}
+
 ${hasWatchlist ? `# WATCHLIST TO ANALYZE
 
 ${formData.watchlist}
@@ -1139,6 +1141,68 @@ Replace the example values with actual analysis. The JSON must be valid and pars
 ---
 
 Be specific and practical. For each trade signal, provide BOTH Standard (shares) AND Spread Bet (£/point) sizing. Mark any data that needs real-time verification as **NEEDS CHECK**.`
+}
+
+/**
+ * Build scanner gate section for the AI prompt.
+ * When the scanner has already run, this tells Claude which tickers passed/failed
+ * the quantitative pillar scoring so the AI doesn't override the scanner's gating.
+ */
+function buildScannerGateSection(scannerResults) {
+  if (!scannerResults || !scannerResults.results) {
+    return ''
+  }
+
+  const { results, regimeGate, thresholds } = scannerResults
+  const longs = results.long || []
+  const shorts = results.short || []
+  const watchlist = results.watchlist || []
+
+  const regimeState = regimeGate?.regimeState || 'UNKNOWN'
+
+  let section = `# ⚠️ SCANNER GATE — QUANTITATIVE PRE-SCREENING RESULTS
+# These results are from our automated Six Pillars scanner that ran on live market data.
+# The scanner uses coded pillar scoring (not qualitative assessment) and regime gating.
+# YOU MUST RESPECT THESE RESULTS. Do not upgrade a WATCHLIST ticker to TAKE TRADE.
+
+**Regime State:** ${regimeState}
+**Long threshold:** ${thresholds?.long?.score || '?'}%+ score, ${thresholds?.long?.pillars || '?'}+ pillars
+**Short threshold:** ${thresholds?.short?.score || '?'}%+ score, ${thresholds?.short?.pillars || '?'}+ pillars
+
+`
+
+  if (longs.length > 0) {
+    section += `## SCANNER-APPROVED LONGS (these CAN be TAKE TRADE)\n`
+    longs.forEach(s => {
+      section += `- ${s.ticker}: Score ${s.score?.toFixed(0)}%, Tier ${s.setupTier || '?'}, R:R ${s.tradeManagement?.riskRewardRatio || '?'}:1\n`
+    })
+    section += '\n'
+  } else {
+    section += `## SCANNER-APPROVED LONGS: NONE\nNo tickers passed the long threshold. Do NOT issue TAKE TRADE for any long.\n\n`
+  }
+
+  if (shorts.length > 0) {
+    section += `## SCANNER-APPROVED SHORTS (these CAN be TAKE TRADE)\n`
+    shorts.forEach(s => {
+      section += `- ${s.ticker}: Score ${s.score?.toFixed(0)}%, Tier ${s.setupTier || '?'}, R:R ${s.tradeManagement?.riskRewardRatio || '?'}:1\n`
+    })
+    section += '\n'
+  } else {
+    section += `## SCANNER-APPROVED SHORTS: NONE\nNo tickers passed the short threshold. Do NOT issue TAKE TRADE for any short.\n\n`
+  }
+
+  if (watchlist.length > 0) {
+    section += `## SCANNER WATCHLIST (these are WATCHLIST ONLY — not ready to trade)\n`
+    watchlist.forEach(s => {
+      section += `- ${s.ticker}: Score ${s.score?.toFixed(0)}%, Direction ${s.direction}\n`
+    })
+    section += `\n**IMPORTANT:** These watchlist tickers did NOT pass the scanner threshold. `
+    section += `Your verdict for these MUST be WATCHLIST, not TAKE TRADE. `
+    section += `They are developing setups — explain what needs to improve for them to become tradeable.\n\n`
+  }
+
+  section += `---\n`
+  return section
 }
 
 function parseResponse(responseText) {

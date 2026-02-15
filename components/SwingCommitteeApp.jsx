@@ -396,7 +396,8 @@ export default function SwingCommitteeApp() {
             uk: { score: marketPulseData.uk.score, label: marketPulseData.uk.label, regime: marketPulseData.uk.regime },
             us: { score: marketPulseData.us.score, label: marketPulseData.us.label, regime: marketPulseData.us.regime }
           },
-          livePrices: watchlistPrices // Pass live prices to the analysis
+          livePrices: watchlistPrices, // Pass live prices to the analysis
+          scannerResults: scanResults || null // Pass scanner data so AI respects quantitative gate
         })
       });
 
@@ -1007,30 +1008,26 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
 
                       return (
                         <div className="relative mb-2 pb-2">
-                          {/* Three-column: UK | Regime State | US */}
-                          <div className="grid grid-cols-3 gap-2 mb-2">
+                          {/* Two-column: UK Market | US Market */}
+                          <div className="grid grid-cols-2 gap-2 mb-2">
                             {/* UK Market */}
                             <div className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm font-bold ${
                               ukGate.riskOn ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'
                             }`}>
-                              <span>\uD83C\uDDEC\uD83C\uDDE7 {ukGate.riskOn ? 'ON' : 'OFF'}</span>
-                              <span className="text-xs font-normal opacity-90">{ukGate.distributionDays || 0}d</span>
-                            </div>
-                            {/* Overall Regime State */}
-                            <div className={`flex items-center justify-center px-3 py-2 rounded-lg text-sm font-bold ${rc.bg} text-white`}>
-                              {rc.icon} {rc.label}
+                              <span>\uD83C\uDDEC\uD83C\uDDE7 UK {ukGate.riskOn ? 'Risk-On' : 'Risk-Off'}</span>
+                              <span className="text-xs font-normal opacity-90">{ukGate.distributionDays || 0}d dist</span>
                             </div>
                             {/* US Market */}
                             <div className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm font-bold ${
                               usGate.riskOn ? 'bg-green-500 text-white' : 'bg-amber-500 text-white'
                             }`}>
-                              <span>\uD83C\uDDFA\uD83C\uDDF8 {usGate.riskOn ? 'ON' : 'OFF'}</span>
-                              <span className="text-xs font-normal opacity-90">{usGate.distributionDays || 0}d</span>
+                              <span>\uD83C\uDDFA\uD83C\uDDF8 US {usGate.riskOn ? 'Risk-On' : 'Risk-Off'}</span>
+                              <span className="text-xs font-normal opacity-90">{usGate.distributionDays || 0}d dist</span>
                             </div>
                           </div>
-                          {/* Regime description banner */}
+                          {/* Regime impact banner — shows combined effect on trading */}
                           <div className={`${rc.bannerBg} border ${rc.bannerBorder} rounded-lg px-3 py-1.5 text-center ${rc.bannerText} text-xs font-medium`}>
-                            {rc.desc}
+                            {rc.icon} {rc.desc}
                           </div>
                         </div>
                       );
@@ -1337,13 +1334,14 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="font-medium text-amber-800 flex items-center gap-2">
                             <Eye className="w-4 h-4" />
-                            Watch List ({scanResults.results.watchlist.length})
+                            Developing ({scanResults.results.watchlist.length})
+                            <span className="text-xs font-normal text-gray-500">— interesting but not ready to trade</span>
                           </h4>
                           <button
                             onClick={() => addScanResultsToWatchlist(scanResults.results.watchlist, 'Scanner Watch')}
                             className="text-xs bg-amber-600 text-white px-2 py-1 rounded hover:bg-amber-700"
                           >
-                            Add All
+                            Track These
                           </button>
                         </div>
                         <div className="flex flex-wrap gap-2">
