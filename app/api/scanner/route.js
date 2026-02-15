@@ -72,7 +72,10 @@ export async function POST(request) {
       // Instrument filters - default to US and UK stocks for backwards compatibility
       instruments = { ukStocks: true, usStocks: true, indices: false, forex: false, crypto: false },
       // Regime Gate data - benchmark status and distribution days
-      regimeGate = { riskOn: true, benchmarkAbove50MA: true, distributionDays: 0 }
+      regimeGate = { riskOn: true, benchmarkAbove50MA: true, distributionDays: 0 },
+      // Account data for position sizing (£ per point)
+      accountSize = null,
+      riskPerTrade = null
     } = await request.json()
 
     console.log(`Starting scan for mode: ${mode}, trend: ${marketTrend}, shorts: ${shortSellingAllowed}`)
@@ -92,19 +95,14 @@ export async function POST(request) {
       tickersToScan = [...UNIVERSE.usStocks, ...UNIVERSE.ukStocks]
     }
 
-    // Fetch historical data for all tickers
-    const scanResults = await Promise.all(
-      tickersToScan.map(ticker => scanTicker(ticker, mode))
-    )
-
-    // Filter out errors and sort by score
-    const validResults = scanResults
-      .filter(r => r && !r.error && r.score !== null)
-      .sort((a, b) => b.score - a.score)
+    // Parse account data for position sizing
+    const acctSize = accountSize ? parseFloat(accountSize) : null
+    const riskPct = riskPerTrade ? parseFloat(riskPerTrade) : null
 
     // ========================================
     // REGIME GATE - 3-State Model with Alignment
     // ========================================
+    // Computed BEFORE scan loop so scanTicker can use regimeState for dynamic targets
     // GREEN: Risk-On + up/neutral trend → favour longs, full size
     // RED:   Risk-Off OR down trend → favour shorts, full size
     // YELLOW: Mixed signals → both sides elevated threshold, half size
@@ -118,6 +116,16 @@ export async function POST(request) {
     } else {
       regimeState = 'YELLOW'
     }
+
+    // Fetch historical data for all tickers
+    const scanResults = await Promise.all(
+      tickersToScan.map(ticker => scanTicker(ticker, mode, acctSize, riskPct, regimeState))
+    )
+
+    // Filter out errors and sort by score
+    const validResults = scanResults
+      .filter(r => r && !r.error && r.score !== null)
+      .sort((a, b) => b.score - a.score)
 
     // Thresholds by regime: WITH the tape = standard, AGAINST = exceptional
     let longScoreThreshold, shortScoreThreshold, longPillarMin, shortPillarMin
@@ -177,6 +185,29 @@ export async function POST(request) {
       .filter(r => r.direction === 'WATCH')
       .slice(0, 10)
 
+    // Apply regime size multiplier to £ per point in filtered results
+    // scanTicker uses 1.0x; now scale by actual regime multiplier per direction
+    const applyRegimeMultiplier = (candidates, multiplier) => {
+      if (!acctSize || !riskPct) return candidates
+      return candidates.map(c => {
+        if (c.tradeManagement && c.tradeManagement.poundsPerPoint) {
+          return {
+            ...c,
+            tradeManagement: {
+              ...c.tradeManagement,
+              poundsPerPoint: parseFloat((c.tradeManagement.poundsPerPoint * multiplier).toFixed(4)),
+              effectiveRisk: parseFloat((c.tradeManagement.effectiveRisk * multiplier).toFixed(2)),
+              regimeMultiplier: multiplier
+            }
+          }
+        }
+        return c
+      })
+    }
+
+    const longResults = applyRegimeMultiplier(longCandidates, longSizeMultiplier)
+    const shortResults = applyRegimeMultiplier(shortCandidates, shortSizeMultiplier)
+
     return Response.json({
       timestamp: new Date().toISOString(),
       mode,
@@ -200,16 +231,16 @@ export async function POST(request) {
       },
       totalScanned: tickersToScan.length,
       results: {
-        long: longCandidates,
-        short: shortCandidates,
+        long: longResults,
+        short: shortResults,
         watchlist: watchlistCandidates
       },
       summary: {
-        longCount: longCandidates.length,
-        shortCount: shortCandidates.length,
+        longCount: longResults.length,
+        shortCount: shortResults.length,
         watchlistCount: watchlistCandidates.length,
-        topLong: longCandidates[0]?.ticker || null,
-        topShort: shortCandidates[0]?.ticker || null
+        topLong: longResults[0]?.ticker || null,
+        topShort: shortResults[0]?.ticker || null
       }
     })
   } catch (error) {
@@ -282,7 +313,7 @@ async function checkEarningsProximity(ticker) {
   }
 }
 
-async function scanTicker(ticker, mode) {
+async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, regimeState = 'YELLOW') {
   try {
     // Fetch 90 days of daily data for short-term momentum analysis
     const days = 90
@@ -343,6 +374,28 @@ async function scanTicker(ticker, mode) {
     // Set backward-compatible .score on each pillar (UI reads p.score)
     for (const [key, pillar] of Object.entries(pillars)) {
       pillar.score = direction === 'SHORT' ? pillar.shortScore : pillar.longScore
+    }
+
+    // Count passing pillars for the determined direction
+    const pillarsPassing = direction === 'SHORT'
+      ? Object.values(pillars).filter(p => p.shortScore >= 5).length
+      : Object.values(pillars).filter(p => p.longScore >= 5).length
+
+    // Fractal target: furthest swing-type structural level in the trade's direction
+    // Used to cap T2 at a level the market has actually shown
+    let fractalTarget = null
+    if (direction === 'LONG') {
+      // Highest SwingHigh from resistance ladder (sorted ascending → last = furthest)
+      const swingResistances = (indicators.allResistanceLevels || []).filter(r => r.type === 'SwingHigh')
+      fractalTarget = swingResistances.length > 0
+        ? swingResistances[swingResistances.length - 1].level
+        : null
+    } else if (direction === 'SHORT') {
+      // Lowest SwingLow from support ladder (sorted descending → last = furthest)
+      const swingSupports = (indicators.allSupportLevels || []).filter(s => s.type === 'SwingLow')
+      fractalTarget = swingSupports.length > 0
+        ? swingSupports[swingSupports.length - 1].level
+        : null
     }
 
     // Check earnings proximity (±2 days)
@@ -411,14 +464,26 @@ async function scanTicker(ticker, mode) {
       }
     }
 
-    // Calculate ATR-based trade management (entry, stop, targets)
-    const tradeManagement = calculateTradeManagement(
-      indicators.currentPrice,
-      indicators.atrRaw,
+    // Calculate ATR-based trade management (entry, stop, dynamic targets, £/point)
+    // regimeSizeMultiplier = 1.0 here; POST handler adjusts £/pt per regime state
+    const tradeManagement = calculateTradeManagement({
+      currentPrice: indicators.currentPrice,
+      atr: indicators.atrRaw,
       direction,
-      indicators.recentHigh,
-      indicators.recentLow
-    )
+      recentHigh: indicators.recentHigh,
+      recentLow: indicators.recentLow,
+      accountSize,
+      riskPercent,
+      regimeSizeMultiplier: 1.0,
+      // Context for dynamic targets
+      score,
+      pillarsPassing,
+      regimeState,
+      fractalTarget,
+      airPocketOk: (direction === 'LONG' || direction === 'SHORT'),
+      nearestResistance: indicators.nearestResistance,
+      nearestSupport: indicators.nearestSupport,
+    })
 
     // Get entry timing guidance
     const entryTiming = getEntryTiming(ticker)
@@ -433,6 +498,7 @@ async function scanTicker(ticker, mode) {
         : indicators.momentum5d?.toFixed(2) + '%',
       direction,
       score,
+      setupTier: tradeManagement?.setupTier || null,
       pillars,
       indicators: {
         rsi: indicators.rsi,
@@ -752,76 +818,256 @@ function calculateATR(highs, lows, closes, period = 14) {
 }
 
 /**
- * Calculate ATR-based trade management levels
- * Returns entry zone, stop loss, T1 (1.5R), T2 (2.5R), and R:R ratio
+ * Calculate ATR-based trade management levels with dynamic two-stage targets
+ *
+ * Two-stage exit strategy:
+ * - T1 (partial): 1.0R default, 1.5R for elite setups → take 50%, move stop to breakeven
+ * - T2 (runner):  1.618R default, 2.618R for elite → capped by fractal target & S/R buffer
+ *
+ * Elite upgrade requires ALL of: A+ tier, STRONGLY_ALIGNED regime, clean air pocket
+ *
+ * ATR Clamp: Stop distance clamped to 0.618-1.618x ATR
+ * S/R Buffer: T2 pulled back 0.15R from nearest S/R to avoid targeting into walls
  */
-function calculateTradeManagement(currentPrice, atr, direction, recentHigh, recentLow) {
+function calculateTradeManagement(opts) {
+  const {
+    currentPrice, atr, direction, recentHigh, recentLow,
+    accountSize, riskPercent, regimeSizeMultiplier,
+    score = 0, pillarsPassing = 0, regimeState = 'YELLOW',
+    fractalTarget = null, airPocketOk = false,
+    nearestResistance = null, nearestSupport = null,
+  } = opts
+
   if (!atr || atr <= 0) {
     return null
   }
 
-  // Entry zone: current price +/- 0.2 ATR for limit orders (tighter zone)
+  // ── SETUP TIER (derived from score + pillarsPassing) ──
+  let setupTier
+  if (score >= 90 && pillarsPassing >= 6) {
+    setupTier = 'A+'
+  } else if (score >= 80 && pillarsPassing >= 5) {
+    setupTier = 'A'
+  } else if (score >= 70 && pillarsPassing >= 4) {
+    setupTier = 'B'
+  } else {
+    setupTier = 'C'
+  }
+
+  // ── REGIME ALIGNMENT ──
+  const isAlignedDirection =
+    (regimeState === 'GREEN' && direction === 'LONG') ||
+    (regimeState === 'RED' && direction === 'SHORT')
+
+  let regimeAlignment
+  if (isAlignedDirection && score >= 85) {
+    regimeAlignment = 'STRONGLY_ALIGNED'
+  } else if (isAlignedDirection) {
+    regimeAlignment = 'ALIGNED'
+  } else {
+    regimeAlignment = 'NOT_ALIGNED'
+  }
+
+  // ── ELITE UPGRADE CONDITION ──
+  // Same condition gates both T1 (1.0→1.5R) and T2 (1.618→2.618R)
+  const isEliteSetup = setupTier === 'A+' && regimeAlignment === 'STRONGLY_ALIGNED' && airPocketOk
+
+  // ── DYNAMIC MULTIPLIERS ──
+  const t1Mult = isEliteSetup ? 1.5 : 1.0
+  const fibMult = isEliteSetup ? 2.618 : 1.618
+
+  // Entry zone: current price +/- 0.2 ATR for limit orders
   const entryBuffer = atr * 0.2
 
+  // ATR clamp bounds (Fibonacci-derived)
+  const atrFloor = atr * 0.618
+  const atrCap = atr * 1.618
+
+  // S/R buffer: 0.15R to avoid targeting directly into walls
+  const srBufferMult = 0.15
+
   if (direction === 'LONG') {
-    // For longs: entry slightly below current, stop below that
+    // ── ENTRY & STOP (unchanged) ──
     const entryHigh = currentPrice
     const entryLow = Math.max(currentPrice - entryBuffer, recentLow)
     const entryMid = (entryHigh + entryLow) / 2
 
-    // Stop loss: 1 ATR below entry low (gives room for normal volatility)
-    const stopLoss = entryLow - atr
+    const rawStopDistance = atr
+    const clampedStopDistance = Math.max(atrFloor, Math.min(atrCap, rawStopDistance))
+    const stopLoss = entryLow - clampedStopDistance
 
-    // Risk per share
+    // R = risk per share
     const risk = entryMid - stopLoss
+    if (risk <= 0) return null
 
-    // Targets based on R multiples
-    const target1 = entryMid + (risk * 1.5)  // T1 = 1.5R
-    const target2 = entryMid + (risk * 2.5)  // T2 = 2.5R
+    // ── DYNAMIC T1 ──
+    const target1 = entryMid + (risk * t1Mult)
 
-    // R:R ratio (using T2 as the main target)
-    const reward = target2 - entryMid
+    // ── DYNAMIC T2 ──
+    // Step 1: Fib-based candidate
+    const t2Fib = entryMid + (risk * fibMult)
+
+    // Step 2: Cap at fractal target if it exists and is closer
+    let t2PreSR = t2Fib
+    let t2Basis = isEliteSetup ? 'FIB_2.618' : 'FIB_1.618'
+    if (fractalTarget !== null && fractalTarget > entryMid) {
+      if (fractalTarget < t2Fib) {
+        t2PreSR = fractalTarget
+        t2Basis = 'FRACTAL'
+      }
+    }
+
+    // Step 3: S/R buffer — pull back if nearest resistance is near T2
+    const srBuffer = risk * srBufferMult
+    let t2Final = t2PreSR
+    if (nearestResistance && nearestResistance.level > target1) {
+      const srCap = nearestResistance.level - srBuffer
+      if (srCap < t2Final) {
+        t2Final = srCap
+        t2Basis += ' + SR_ADJUSTED'
+      }
+    }
+
+    // Step 4: Validation — T2 must be beyond T1
+    const notes = []
+    if (t2Final <= target1) {
+      t2Final = target1
+      notes.push('T2_CLAMPED_TO_T1')
+    }
+
+    // Step 5: Validation — T2 must be beyond entry
+    if (t2Final <= entryMid) return null
+
+    // R:R ratio (using T2 runner target)
+    const reward = t2Final - entryMid
     const riskRewardRatio = reward / risk
+
+    // £ per point calculation
+    const stopDistancePoints = Math.abs(entryMid - stopLoss)
+    const positionSizing = calculatePositionSizing(accountSize, riskPercent, stopDistancePoints, regimeSizeMultiplier)
 
     return {
       entryZone: { low: entryLow, high: entryHigh },
       stopLoss,
       target1,
-      target2,
+      target2: t2Final,
       risk,
-      riskRewardRatio: riskRewardRatio.toFixed(1)
+      riskRewardRatio: riskRewardRatio.toFixed(1),
+      // Dynamic target context
+      setupTier,
+      regimeAlignment,
+      t1Mult,
+      t2Basis,
+      fractalTarget,
+      runnerStopAfterT1: entryMid,  // breakeven
+      t1SizePct: 50,
+      runnerSizePct: 50,
+      notes,
+      ...positionSizing
     }
   } else if (direction === 'SHORT') {
-    // For shorts: entry slightly above current, stop above that
+    // ── ENTRY & STOP (unchanged) ──
     const entryLow = currentPrice
     const entryHigh = Math.min(currentPrice + entryBuffer, recentHigh)
     const entryMid = (entryHigh + entryLow) / 2
 
-    // Stop loss: 1 ATR above entry high
-    const stopLoss = entryHigh + atr
+    const rawStopDistance = atr
+    const clampedStopDistance = Math.max(atrFloor, Math.min(atrCap, rawStopDistance))
+    const stopLoss = entryHigh + clampedStopDistance
 
-    // Risk per share
+    // R = risk per share
     const risk = stopLoss - entryMid
+    if (risk <= 0) return null
 
-    // Targets based on R multiples (lower prices for shorts)
-    const target1 = entryMid - (risk * 1.5)  // T1 = 1.5R
-    const target2 = entryMid - (risk * 2.5)  // T2 = 2.5R
+    // ── DYNAMIC T1 ──
+    const target1 = entryMid - (risk * t1Mult)
 
-    // R:R ratio
-    const reward = entryMid - target2
+    // ── DYNAMIC T2 ──
+    // Step 1: Fib-based candidate
+    const t2Fib = entryMid - (risk * fibMult)
+
+    // Step 2: Cap at fractal target if it exists and is closer (for shorts, closer = higher)
+    let t2PreSR = t2Fib
+    let t2Basis = isEliteSetup ? 'FIB_2.618' : 'FIB_1.618'
+    if (fractalTarget !== null && fractalTarget < entryMid) {
+      if (fractalTarget > t2Fib) {
+        t2PreSR = fractalTarget
+        t2Basis = 'FRACTAL'
+      }
+    }
+
+    // Step 3: S/R buffer — pull back if nearest support is near T2
+    const srBuffer = risk * srBufferMult
+    let t2Final = t2PreSR
+    if (nearestSupport && nearestSupport.level < target1) {
+      const srFloor = nearestSupport.level + srBuffer
+      if (srFloor > t2Final) {
+        t2Final = srFloor
+        t2Basis += ' + SR_ADJUSTED'
+      }
+    }
+
+    // Step 4: Validation — T2 must be beyond T1 (lower for shorts)
+    const notes = []
+    if (t2Final >= target1) {
+      t2Final = target1
+      notes.push('T2_CLAMPED_TO_T1')
+    }
+
+    // Step 5: Validation — T2 must be beyond entry (lower for shorts)
+    if (t2Final >= entryMid) return null
+
+    // R:R ratio (using T2 runner target)
+    const reward = entryMid - t2Final
     const riskRewardRatio = reward / risk
+
+    // £ per point calculation
+    const stopDistancePoints = Math.abs(stopLoss - entryMid)
+    const positionSizing = calculatePositionSizing(accountSize, riskPercent, stopDistancePoints, regimeSizeMultiplier)
 
     return {
       entryZone: { low: entryLow, high: entryHigh },
       stopLoss,
       target1,
-      target2,
+      target2: t2Final,
       risk,
-      riskRewardRatio: riskRewardRatio.toFixed(1)
+      riskRewardRatio: riskRewardRatio.toFixed(1),
+      // Dynamic target context
+      setupTier,
+      regimeAlignment,
+      t1Mult,
+      t2Basis,
+      fractalTarget,
+      runnerStopAfterT1: entryMid,  // breakeven
+      t1SizePct: 50,
+      runnerSizePct: 50,
+      notes,
+      ...positionSizing
     }
   }
 
   return null
+}
+
+/**
+ * Calculate £ per point position sizing for spread bets
+ * Returns poundsPerPoint, effectiveRisk, notionalExposure, marginRequired
+ */
+function calculatePositionSizing(accountSize, riskPercent, stopDistancePoints, regimeSizeMultiplier = 1.0) {
+  if (!accountSize || !riskPercent || !stopDistancePoints || stopDistancePoints <= 0) {
+    return {}
+  }
+
+  const baseRisk = accountSize * (riskPercent / 100)
+  const effectiveRisk = baseRisk * (regimeSizeMultiplier || 1.0)
+  const poundsPerPoint = effectiveRisk / stopDistancePoints
+
+  return {
+    poundsPerPoint: parseFloat(poundsPerPoint.toFixed(4)),
+    effectiveRisk: parseFloat(effectiveRisk.toFixed(2)),
+    baseRisk: parseFloat(baseRisk.toFixed(2)),
+    regimeMultiplier: regimeSizeMultiplier || 1.0
+  }
 }
 
 /**

@@ -326,7 +326,10 @@ export default function SwingCommitteeApp() {
             indices: formData.indices,
             forex: formData.forex,
             crypto: formData.crypto
-          }
+          },
+          // Account data for £ per point position sizing
+          accountSize: formData.accountSize,
+          riskPerTrade: formData.riskPerTrade
         })
       });
 
@@ -1089,6 +1092,16 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                                   <span className="font-bold text-gray-900">{stock.ticker}</span>
                                   <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">LONG</span>
                                   <span className="text-xs text-gray-500">Score: {stock.score?.toFixed(0)}%</span>
+                                  {stock.setupTier && (
+                                    <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${
+                                      stock.setupTier === 'A+' ? 'bg-yellow-100 text-yellow-800' :
+                                      stock.setupTier === 'A' ? 'bg-green-100 text-green-800' :
+                                      stock.setupTier === 'B' ? 'bg-blue-100 text-blue-800' :
+                                      'bg-gray-100 text-gray-600'
+                                    }`}>
+                                      {stock.setupTier}
+                                    </span>
+                                  )}
                                 </div>
                                 {stock.tradeManagement && (
                                   <span className="text-sm font-bold text-green-600">R:R {stock.tradeManagement.riskRewardRatio}:1</span>
@@ -1116,14 +1129,14 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                                     </div>
                                   </div>
                                   <div className="bg-green-50 rounded p-1.5">
-                                    <div className="text-gray-500">T1 (1.5R)</div>
+                                    <div className="text-gray-500">T1 ({stock.tradeManagement.t1Mult || 1.0}R)</div>
                                     <div className="font-medium text-green-600">
                                       {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
                                       {stock.tradeManagement.target1?.toFixed(2)}
                                     </div>
                                   </div>
-                                  <div className="bg-green-50 rounded p-1.5">
-                                    <div className="text-gray-500">T2 (2.5R)</div>
+                                  <div className="bg-green-50 rounded p-1.5" title={stock.tradeManagement.t2Basis || ''}>
+                                    <div className="text-gray-500">T2 ({stock.tradeManagement.t2Basis?.includes('FRACTAL') ? 'Frac' : 'Fib'})</div>
                                     <div className="font-medium text-green-600">
                                       {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
                                       {stock.tradeManagement.target2?.toFixed(2)}
@@ -1133,6 +1146,41 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                               ) : (
                                 <div className="text-xs text-gray-500">
                                   Price: {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}{stock.price?.toFixed(2)} | RSI: {stock.indicators?.rsi?.toFixed(0)}
+                                </div>
+                              )}
+
+                              {/* Position sizing + runner info */}
+                              {stock.tradeManagement && (
+                                <div className="flex items-center gap-3 mt-1.5 text-xs bg-purple-50 rounded p-1.5">
+                                  <div>
+                                    <span className="text-gray-500">At T1: </span>
+                                    <span className="font-medium text-purple-700">Take {stock.tradeManagement.t1SizePct || 50}%</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-500">Stop → </span>
+                                    <span className="font-medium text-purple-700">BE</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-500">Runner: </span>
+                                    <span className="font-medium text-purple-700">{stock.tradeManagement.runnerSizePct || 50}% → T2</span>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Position sizing - £ per point */}
+                              {stock.tradeManagement?.poundsPerPoint && (
+                                <div className="flex items-center gap-3 mt-1 text-xs bg-blue-50 rounded p-1.5">
+                                  <div>
+                                    <span className="text-gray-500">Size: </span>
+                                    <span className="font-bold text-blue-700">£{stock.tradeManagement.poundsPerPoint.toFixed(2)}/pt</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-500">Risk: </span>
+                                    <span className="font-medium text-gray-700">£{stock.tradeManagement.effectiveRisk?.toFixed(0)}</span>
+                                  </div>
+                                  {stock.tradeManagement.regimeMultiplier < 1 && (
+                                    <span className="text-amber-600">({stock.tradeManagement.regimeMultiplier}x regime)</span>
+                                  )}
                                 </div>
                               )}
 
@@ -1177,6 +1225,16 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                                     <span className="font-bold text-gray-900">{stock.ticker}</span>
                                     <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">SHORT</span>
                                     <span className="text-xs text-gray-500">Score: {stock.score?.toFixed(0)}%</span>
+                                    {stock.setupTier && (
+                                      <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${
+                                        stock.setupTier === 'A+' ? 'bg-yellow-100 text-yellow-800' :
+                                        stock.setupTier === 'A' ? 'bg-green-100 text-green-800' :
+                                        stock.setupTier === 'B' ? 'bg-blue-100 text-blue-800' :
+                                        'bg-gray-100 text-gray-600'
+                                      }`}>
+                                        {stock.setupTier}
+                                      </span>
+                                    )}
                                   </div>
                                   {stock.tradeManagement && (
                                     <span className="text-sm font-bold text-red-600">R:R {stock.tradeManagement.riskRewardRatio}:1</span>
@@ -1204,14 +1262,14 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                                       </div>
                                     </div>
                                     <div className="bg-green-50 rounded p-1.5">
-                                      <div className="text-gray-500">T1 (1.5R)</div>
+                                      <div className="text-gray-500">T1 ({stock.tradeManagement.t1Mult || 1.0}R)</div>
                                       <div className="font-medium text-green-600">
                                         {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
                                         {stock.tradeManagement.target1?.toFixed(2)}
                                       </div>
                                     </div>
-                                    <div className="bg-green-50 rounded p-1.5">
-                                      <div className="text-gray-500">T2 (2.5R)</div>
+                                    <div className="bg-green-50 rounded p-1.5" title={stock.tradeManagement.t2Basis || ''}>
+                                      <div className="text-gray-500">T2 ({stock.tradeManagement.t2Basis?.includes('FRACTAL') ? 'Frac' : 'Fib'})</div>
                                       <div className="font-medium text-green-600">
                                         {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
                                         {stock.tradeManagement.target2?.toFixed(2)}
@@ -1221,6 +1279,41 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                                 ) : (
                                   <div className="text-xs text-gray-500">
                                     Price: {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}{stock.price?.toFixed(2)} | RSI: {stock.indicators?.rsi?.toFixed(0)}
+                                  </div>
+                                )}
+
+                                {/* Position sizing + runner info */}
+                                {stock.tradeManagement && (
+                                  <div className="flex items-center gap-3 mt-1.5 text-xs bg-purple-50 rounded p-1.5">
+                                    <div>
+                                      <span className="text-gray-500">At T1: </span>
+                                      <span className="font-medium text-purple-700">Take {stock.tradeManagement.t1SizePct || 50}%</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Stop → </span>
+                                      <span className="font-medium text-purple-700">BE</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Runner: </span>
+                                      <span className="font-medium text-purple-700">{stock.tradeManagement.runnerSizePct || 50}% → T2</span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Position sizing - £ per point */}
+                                {stock.tradeManagement?.poundsPerPoint && (
+                                  <div className="flex items-center gap-3 mt-1 text-xs bg-blue-50 rounded p-1.5">
+                                    <div>
+                                      <span className="text-gray-500">Size: </span>
+                                      <span className="font-bold text-blue-700">£{stock.tradeManagement.poundsPerPoint.toFixed(2)}/pt</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Risk: </span>
+                                      <span className="font-medium text-gray-700">£{stock.tradeManagement.effectiveRisk?.toFixed(0)}</span>
+                                    </div>
+                                    {stock.tradeManagement.regimeMultiplier < 1 && (
+                                      <span className="text-amber-600">({stock.tradeManagement.regimeMultiplier}x regime)</span>
+                                    )}
                                   </div>
                                 )}
 
