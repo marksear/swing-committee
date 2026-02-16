@@ -1223,7 +1223,12 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                     ) : (
                       <div className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">
                         <TrendingUp className="w-4 h-4 inline mr-1 text-green-600" />
-                        No long candidates meet the threshold ({scanResults.thresholds?.long?.score}%+ score, {scanResults.thresholds?.long?.pillars}+ pillars)
+                        No long candidates meet the threshold
+                        {scanResults.thresholds?.uk && scanResults.thresholds?.us &&
+                         scanResults.thresholds.uk.long?.score !== scanResults.thresholds.us.long?.score
+                          ? ` (UK: ${scanResults.thresholds.uk.long?.score}%+, US: ${scanResults.thresholds.us.long?.score}%+)`
+                          : ` (${scanResults.thresholds?.long?.score}%+ score, ${scanResults.thresholds?.long?.pillars}+ pillars)`
+                        }
                       </div>
                     )}
 
@@ -1356,7 +1361,12 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                       ) : (
                         <div className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">
                           <TrendingDown className="w-4 h-4 inline mr-1 text-red-600" />
-                          No short candidates meet the threshold ({scanResults.thresholds?.short?.score}%+ score, {scanResults.thresholds?.short?.pillars}+ pillars)
+                          No short candidates meet the threshold
+                          {scanResults.thresholds?.uk && scanResults.thresholds?.us &&
+                           scanResults.thresholds.uk.short?.score !== scanResults.thresholds.us.short?.score
+                            ? ` (UK: ${scanResults.thresholds.uk.short?.score}%+, US: ${scanResults.thresholds.us.short?.score}%+)`
+                            : ` (${scanResults.thresholds?.short?.score}%+ score, ${scanResults.thresholds?.short?.pillars}+ pillars)`
+                          }
                         </div>
                       )
                     )}
