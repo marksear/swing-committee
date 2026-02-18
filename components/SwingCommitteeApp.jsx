@@ -9,6 +9,7 @@ import {
   AlertTriangle, Eye, Scale, Flame, Gauge, Calendar, BookOpen, Lightbulb,
   XCircle, RefreshCw, Sparkles, Globe
 } from 'lucide-react';
+import { computeMclPolicy } from '../lib/mclPolicy';
 
 export default function SwingCommitteeApp() {
   const [step, setStep] = useState(0);  // Start at welcome screen with Market Pulse
@@ -331,6 +332,17 @@ export default function SwingCommitteeApp() {
         us: usRisk
       };
 
+      // ── MCL Policy — auto-compute regime from Market Context Layer ──
+      // If MCL data is available, compute per-market policy (replaces manual regime).
+      // Falls back to legacy regimeGate if MCL unavailable.
+      let mclPolicyPayload = null;
+      if (marketContextData?.factors) {
+        mclPolicyPayload = {
+          uk: computeMclPolicy(marketContextData.factors, 'UK'),
+          us: computeMclPolicy(marketContextData.factors, 'US'),
+        };
+      }
+
       const response = await fetch('/api/scanner', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -339,6 +351,7 @@ export default function SwingCommitteeApp() {
           marketTrend,
           shortSellingAllowed: formData.shortSellingAllowed,
           regimeGate,
+          mclPolicy: mclPolicyPayload,
           instruments: {
             ukStocks: formData.ukStocks,
             usStocks: formData.usStocks,
@@ -754,7 +767,7 @@ export default function SwingCommitteeApp() {
                   </div>
                   <div>
                     <h2 className="font-bold text-lg">Market Context</h2>
-                    <p className="text-gray-400 text-sm">Advisory — you still decide manually</p>
+                    <p className="text-gray-400 text-sm">{marketContextData?.factors ? 'Auto-driving scanner regime gate' : 'Fetching market context...'}</p>
                   </div>
                 </div>
                 <button
@@ -907,6 +920,42 @@ export default function SwingCommitteeApp() {
                   })()}
                 </div>
               ) : null}
+
+              {/* Computed Regime Policy */}
+              {marketContextData?.factors && (() => {
+                const ukPolicy = computeMclPolicy(marketContextData.factors, 'UK');
+                const usPolicy = computeMclPolicy(marketContextData.factors, 'US');
+                if (!ukPolicy || !usPolicy) return null;
+
+                const regimeColor = (r) => r === 'GREEN' ? 'bg-green-500' : r === 'RED' ? 'bg-red-500' : 'bg-amber-500';
+                const regimeText = (r) => r === 'GREEN' ? 'text-green-400' : r === 'RED' ? 'text-red-400' : 'text-amber-400';
+                const confText = (c) => c === 'HIGH' ? 'text-green-400' : c === 'MEDIUM' ? 'text-amber-400' : 'text-red-400';
+
+                return (
+                  <div className="mt-4 pt-4 border-t border-white/10">
+                    <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wider">Computed Regime Policy</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[{ flag: '\u{1F1EC}\u{1F1E7}', label: 'UK', p: ukPolicy }, { flag: '\u{1F1FA}\u{1F1F8}', label: 'US', p: usPolicy }].map(({ flag, label, p }) => (
+                        <div key={label} className="bg-white/5 rounded-lg p-3">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`w-2.5 h-2.5 rounded-full ${regimeColor(p.regime)}`} />
+                            <span className={`text-sm font-bold ${regimeText(p.regime)}`}>{flag} {p.regime}</span>
+                            <span className="text-xs text-gray-500 ml-auto">score {p.regimeScore}</span>
+                          </div>
+                          <div className="text-xs text-gray-400 space-y-0.5">
+                            <p>Size: <span className="text-white">{p.longSize}x</span> L / <span className="text-white">{p.shortSize}x</span> S</p>
+                            <p>Gate: L {p.thresholds.longScore}%/{p.thresholds.longPillars}p • S {p.thresholds.shortScore}%/{p.thresholds.shortPillars}p</p>
+                            <p className={confText(p.mclConfidence)}>
+                              Confidence: {p.mclConfidence}
+                              {p.volatilityCapApplied && <span className="text-amber-400 ml-1">(vol cap)</span>}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Data quality indicator */}
               {marketContextData?.dataQuality && (
@@ -1289,6 +1338,51 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                         );
                       })()}
                     </div>
+
+                    {/* Pipeline Funnel */}
+                    {scanResults.funnel && (() => {
+                      const f = scanResults.funnel;
+                      return (
+                        <div className="bg-gray-50 rounded-lg p-3 text-xs mb-2">
+                          <p className="font-medium text-gray-700 mb-1.5">Pipeline Funnel</p>
+                          <div className="flex items-center gap-1 text-gray-600">
+                            <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-mono">{f.universe}</span>
+                            <span className="text-gray-400">{'\u2192'}</span>
+                            <span title={`Stage 1: ${f.stage1.label} (${f.stage1.passRate})\n${f.stage1.topReasons?.map(r => `${r.reason}: ${r.count}`).join('\n') || 'no rejections'}`}
+                              className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-mono cursor-help">
+                              {f.stage1.passed} <span className="text-purple-400 font-normal">({f.stage1.passRate})</span>
+                            </span>
+                            <span className="text-gray-400">{'\u2192'}</span>
+                            <span title={`Stage 2: ${f.stage2.label} (${f.stage2.passRate})`}
+                              className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-mono cursor-help">
+                              {f.stage2.passed} <span className="text-amber-400 font-normal">({f.stage2.passRate})</span>
+                            </span>
+                            <span className="text-gray-400">{'\u2192'}</span>
+                            <span title={`Stage 3: ${f.stage3.label} (${f.stage3.passRate})\n${f.stage3.topReasons?.map(r => `${r.reason}: ${r.count}`).join('\n') || 'no rejections'}`}
+                              className={`px-1.5 py-0.5 rounded font-mono cursor-help ${f.stage3.passed > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                              {f.stage3.passed} <span className={f.stage3.passed > 0 ? 'text-green-400' : 'text-red-400'}>({f.stage3.passRate})</span>
+                            </span>
+                          </div>
+                          <div className="flex gap-4 mt-1 text-gray-400">
+                            <span>Universe</span>
+                            <span>Direction</span>
+                            <span>S/R</span>
+                            <span>Regime</span>
+                          </div>
+                          {f.stage3.topReasons?.length > 0 && (
+                            <div className="mt-1.5 pt-1.5 border-t border-gray-200">
+                              <span className="text-gray-500">Top rejections: </span>
+                              {f.stage3.topReasons.map((r, i) => (
+                                <span key={i} className="text-gray-500">
+                                  {i > 0 && ', '}
+                                  {r.reason.replace(/_/g, ' ')} ({r.count})
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Long Candidates */}
                     {scanResults.results.long.length > 0 ? (
@@ -1849,51 +1943,66 @@ Format: Ticker, Notes (we'll fetch live prices)"
               <p className="text-sm text-gray-600">1-3 day holds • Momentum breakouts • ATR-based stops</p>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Your Market View</label>
-              <select
-                value={formData.regimeView}
-                onChange={(e) => setFormData({ ...formData, regimeView: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="trending_up">Trending Up — Buy breakouts</option>
-                <option value="choppy">Choppy — Mean reversion / selective</option>
-                <option value="volatile">Volatile — Reduce size, careful</option>
-                <option value="trending_down">Trending Down — Defensive / short bias</option>
-                <option value="uncertain">Uncertain — Let committee decide</option>
-              </select>
-            </div>
+            {/* MCL Auto-Regime Summary */}
+            {marketContextData?.factors && (() => {
+              const ukP = computeMclPolicy(marketContextData.factors, 'UK');
+              const usP = computeMclPolicy(marketContextData.factors, 'US');
+              if (!ukP || !usP) return null;
+              const regimeColor = (r) => r === 'GREEN' ? 'bg-green-100 border-green-300 text-green-800' : r === 'RED' ? 'bg-red-100 border-red-300 text-red-800' : 'bg-amber-100 border-amber-300 text-amber-800';
+              return (
+                <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Globe className="w-4 h-4 text-purple-600" />
+                    <span className="font-medium text-gray-900 text-sm">Scanner Regime (auto from Market Context)</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[{ flag: '\u{1F1EC}\u{1F1E7}', label: 'UK', p: ukP }, { flag: '\u{1F1FA}\u{1F1F8}', label: 'US', p: usP }].map(({ flag, label, p }) => (
+                      <div key={label} className={`p-2 rounded-lg border text-sm ${regimeColor(p.regime)}`}>
+                        <span className="font-bold">{flag} {p.regime}</span>
+                        <span className="ml-1 opacity-70">({p.regimeScore})</span>
+                        <div className="text-xs opacity-75 mt-0.5">
+                          L {p.longSize}x / S {p.shortSize}x
+                          {p.volatilityCapApplied && ' (vol cap)'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-purple-600 mt-2">Computed from VIX, futures, bonds, dollar, Asia session</p>
+                </div>
+              );
+            })()}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Your Confidence Level: {formData.marketSentiment}/10
-              </label>
-              <div className="relative h-8 flex items-center">
-                {/* Gradient track background */}
-                <div className="absolute inset-x-0 h-3 rounded-full bg-gradient-to-r from-red-500 via-amber-400 to-green-500" />
-                {/* Slider input */}
-                <input
-                  type="range"
-                  min="1"
-                  max="10"
-                  value={formData.marketSentiment}
-                  onChange={(e) => setFormData({ ...formData, marketSentiment: parseInt(e.target.value) })}
-                  className="relative w-full h-3 bg-transparent rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-gray-800 [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-gray-800 [&::-moz-range-thumb]:shadow-lg [&::-moz-range-thumb]:cursor-pointer"
-                />
-              </div>
-              <div className="relative flex text-xs mt-1">
-                <span className="text-red-600 font-medium">Defensive</span>
-                <span className="absolute left-1/2 -translate-x-1/2 text-amber-600 font-medium">Balanced</span>
-                <span className="ml-auto text-green-600 font-medium">Aggressive</span>
-              </div>
-              <div className={`mt-2 p-2 rounded-lg text-sm text-center ${getSentimentLabel(formData.marketSentiment).bg}`}>
-                <span className={getSentimentLabel(formData.marketSentiment).color}>
-                  {getSentimentLabel(formData.marketSentiment).label}
-                </span>
-                <span className="text-gray-600"> — Committee stance: {
-                  formData.marketSentiment <= 4 ? 'Defensive' :
-                  formData.marketSentiment <= 6 ? 'Balanced' : 'Aggressive'
-                }</span>
+            {/* Manual view + confidence — used by AI analysis only */}
+            <div className="border border-gray-200 rounded-xl p-4">
+              <p className="text-xs text-gray-500 mb-3 font-medium uppercase tracking-wider">For AI Analysis Only (does not affect scanner)</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Your Market View</label>
+                  <select
+                    value={formData.regimeView}
+                    onChange={(e) => setFormData({ ...formData, regimeView: e.target.value })}
+                    className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="trending_up">Trending Up</option>
+                    <option value="choppy">Choppy</option>
+                    <option value="volatile">Volatile</option>
+                    <option value="trending_down">Trending Down</option>
+                    <option value="uncertain">Uncertain</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Confidence: {formData.marketSentiment}/10
+                  </label>
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={formData.marketSentiment}
+                    onChange={(e) => setFormData({ ...formData, marketSentiment: parseInt(e.target.value) })}
+                    className="w-full h-2 bg-gradient-to-r from-red-400 via-amber-400 to-green-400 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-gray-700 [&::-webkit-slider-thumb]:shadow [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-gray-700"
+                  />
+                </div>
               </div>
             </div>
 

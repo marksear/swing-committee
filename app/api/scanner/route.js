@@ -82,8 +82,10 @@ export async function POST(request) {
       shortSellingAllowed = true,
       // Instrument filters - default to US and UK stocks for backwards compatibility
       instruments = { ukStocks: true, usStocks: true, indices: false, forex: false, crypto: false },
-      // Regime Gate data - benchmark status and distribution days
+      // Regime Gate data - benchmark status and distribution days (legacy fallback)
       regimeGate = { riskOn: true, benchmarkAbove50MA: true, distributionDays: 0 },
+      // MCL Policy — auto-computed from Market Context Layer (replaces manual regime when present)
+      mclPolicy = null,
       // Account data for position sizing (£ per point)
       accountSize = null,
       riskPerTrade = null
@@ -111,29 +113,58 @@ export async function POST(request) {
     const riskPct = riskPerTrade ? parseFloat(riskPerTrade) : null
 
     // ========================================
-    // REGIME GATE - Per-Market 3-State Model
+    // REGIME GATE — MCL Policy or Legacy Fallback
     // ========================================
-    // Each market gets its own regime state so UK and US are judged independently.
-    // A UK Risk-On + US Risk-Off scenario means UK stocks get GREEN thresholds
-    // (favour longs) while US stocks get RED thresholds (favour shorts).
+    // When MCL policy is provided (auto-computed from Market Context Layer),
+    // it drives regime, thresholds, and sizing. Otherwise falls back to
+    // Market Pulse-based riskOn/marketTrend logic.
+    let ukRegimeState, usRegimeState, ukThresholds, usThresholds
+    let ukMclPolicy = null, usMclPolicy = null
     const isRiskOn = regimeGate.riskOn
-    const ukRiskOn = regimeGate.uk?.riskOn ?? isRiskOn
-    const usRiskOn = regimeGate.us?.riskOn ?? isRiskOn
 
-    function deriveRegimeState(marketRiskOn) {
-      if (marketRiskOn && (marketTrend === 'up' || marketTrend === 'neutral')) return 'GREEN'
-      if (!marketRiskOn || marketTrend === 'down') return 'RED'
-      return 'YELLOW'
+    if (mclPolicy?.uk && mclPolicy?.us) {
+      // ── MCL-driven regime ──
+      ukMclPolicy = mclPolicy.uk
+      usMclPolicy = mclPolicy.us
+      ukRegimeState = ukMclPolicy.regime
+      usRegimeState = usMclPolicy.regime
+      // Merge longSize/shortSize into thresholds to preserve finaliseCandidates pattern
+      ukThresholds = { ...ukMclPolicy.thresholds, longSize: ukMclPolicy.longSize, shortSize: ukMclPolicy.shortSize }
+      usThresholds = { ...usMclPolicy.thresholds, longSize: usMclPolicy.longSize, shortSize: usMclPolicy.shortSize }
+
+      console.log(`MCL Regime: UK=${ukRegimeState} (score ${ukMclPolicy.regimeScore}, conf ${ukMclPolicy.mclConfidence}${ukMclPolicy.volatilityCapApplied ? ', volCap' : ''}), US=${usRegimeState} (score ${usMclPolicy.regimeScore}, conf ${usMclPolicy.mclConfidence}${usMclPolicy.volatilityCapApplied ? ', volCap' : ''})`)
+    } else {
+      // ── Legacy fallback — Market Pulse riskOn + marketTrend ──
+      const ukRiskOn = regimeGate.uk?.riskOn ?? isRiskOn
+      const usRiskOn = regimeGate.us?.riskOn ?? isRiskOn
+
+      function deriveRegimeState(marketRiskOn) {
+        if (marketRiskOn && (marketTrend === 'up' || marketTrend === 'neutral')) return 'GREEN'
+        if (!marketRiskOn || marketTrend === 'down') return 'RED'
+        return 'YELLOW'
+      }
+
+      ukRegimeState = deriveRegimeState(ukRiskOn)
+      usRegimeState = deriveRegimeState(usRiskOn)
+
+      function getRegimeThresholds(state) {
+        switch (state) {
+          case 'GREEN': return { longScore: 70, longPillars: 4, longSize: 1.0, shortScore: 85, shortPillars: 5, shortSize: 0.5 }
+          case 'RED': return { longScore: 85, longPillars: 5, longSize: 0.5, shortScore: 70, shortPillars: 4, shortSize: 1.0 }
+          case 'YELLOW': default: return { longScore: 75, longPillars: 4, longSize: 0.5, shortScore: 75, shortPillars: 4, shortSize: 0.5 }
+        }
+      }
+
+      ukThresholds = getRegimeThresholds(ukRegimeState)
+      usThresholds = getRegimeThresholds(usRegimeState)
+
+      console.log(`Legacy Regime: UK=${ukRegimeState}, US=${usRegimeState}`)
     }
 
-    const ukRegimeState = deriveRegimeState(ukRiskOn)
-    const usRegimeState = deriveRegimeState(usRiskOn)
     // Combined regime for display purposes (conservative: worst of both)
     const regimeState = (ukRegimeState === 'RED' || usRegimeState === 'RED') ? 'RED'
       : (ukRegimeState === 'YELLOW' || usRegimeState === 'YELLOW') ? 'YELLOW'
       : 'GREEN'
-
-    console.log(`Regime: UK=${ukRegimeState}, US=${usRegimeState}, Combined=${regimeState}`)
 
     // Fetch historical data — each ticker gets its OWN market's regime state
     const scanResults = await Promise.all(
@@ -143,36 +174,54 @@ export async function POST(request) {
       })
     )
 
+    // =====================================================
+    // PIPELINE FUNNEL — track rejections at each stage
+    // =====================================================
+    const funnel = {
+      universe: tickersToScan.length,
+      stage1: { passed: 0, failed: 0, reasons: {} },  // Direction assignment
+      stage2: { passed: 0, failed: 0, reasons: {} },  // S/R filtering
+      stage3: { passed: 0, failed: 0, reasons: {} },  // Regime gate
+    }
+    const addRejection = (stage, reason) => {
+      funnel[stage].failed++
+      funnel[stage].reasons[reason] = (funnel[stage].reasons[reason] || 0) + 1
+    }
+
     // Filter out errors and sort by score
-    const validResults = scanResults
-      .filter(r => r && !r.error && r.score !== null)
+    const allResults = scanResults.filter(r => r && !r.error)
+    const fetchErrors = scanResults.filter(r => !r || r.error).length
+
+    // Stage 1: Direction assignment (happened inside scanTicker)
+    // Count by direction outcomes
+    allResults.forEach(r => {
+      if (r.direction === 'LONG' || r.direction === 'SHORT' || r.direction === 'BOTH') {
+        funnel.stage1.passed++
+      } else if (r.direction === 'WATCH') {
+        addRejection('stage1', r.reasoning?.includes('Earnings') ? 'near_earnings'
+          : r.reasoning?.includes('spike') ? 'volatility_spike'
+          : r.reasoning?.includes('S/R') || r.reasoning?.includes('support') || r.reasoning?.includes('resistance') ? 'sr_demotion'
+          : 'insufficient_pillars')
+      } else {
+        addRejection('stage1', 'no_direction')
+      }
+    })
+
+    const validResults = allResults
+      .filter(r => r.score !== null)
       .sort((a, b) => b.score - a.score)
+
+    // Stage 2: S/R filtering (also happened inside scanTicker — demotions to WATCH)
+    // We approximate by counting how many with direction got demoted to WATCH due to S/R
+    const stage2Passed = validResults.filter(r => r.direction === 'LONG' || r.direction === 'SHORT' || r.direction === 'BOTH')
+    funnel.stage2.passed = stage2Passed.length
+    // S/R demotions show up as WATCH with S/R-related reasoning (already counted in stage1)
 
     // =====================================================
     // STAGE 3: PER-MARKET REGIME FILTER — the strict gate
     // UK and US stocks get their OWN regime thresholds
+    // (MCL-computed or legacy, set above)
     // =====================================================
-
-    // Thresholds by regime state
-    function getRegimeThresholds(state) {
-      switch (state) {
-        case 'GREEN': return {
-          longScore: 70, longPillars: 4, longSize: 1.0,
-          shortScore: 85, shortPillars: 5, shortSize: 0.5
-        }
-        case 'RED': return {
-          longScore: 85, longPillars: 5, longSize: 0.5,
-          shortScore: 70, shortPillars: 4, shortSize: 1.0
-        }
-        case 'YELLOW': default: return {
-          longScore: 75, longPillars: 4, longSize: 0.5,
-          shortScore: 75, shortPillars: 4, shortSize: 0.5
-        }
-      }
-    }
-
-    const ukThresholds = getRegimeThresholds(ukRegimeState)
-    const usThresholds = getRegimeThresholds(usRegimeState)
 
     // Per-ticker threshold lookup
     function getThresholds(ticker) {
@@ -219,23 +268,41 @@ export async function POST(request) {
       }
     })
 
-    // Filter longs: per-ticker thresholds based on market regime
-    const longCandidates = resolvedResults
-      .filter(r => r.direction === 'LONG')
-      .filter(r => {
-        const t = getThresholds(r.ticker)
-        return r.score >= t.longScore && countLongPassing(r) >= t.longPillars
-      })
+    // Filter longs: per-ticker thresholds based on market regime — with rejection tracking
+    const longCandidates = []
+    resolvedResults.filter(r => r.direction === 'LONG').forEach(r => {
+      const t = getThresholds(r.ticker)
+      const pillars = countLongPassing(r)
+      if (r.score < t.longScore && pillars < t.longPillars) {
+        addRejection('stage3', 'score_and_pillars_below')
+      } else if (r.score < t.longScore) {
+        addRejection('stage3', `score_below_${t.longScore}`)
+      } else if (pillars < t.longPillars) {
+        addRejection('stage3', `pillars_below_${t.longPillars}`)
+      } else {
+        longCandidates.push(r)
+      }
+    })
 
-    // Filter shorts: per-ticker thresholds based on market regime
-    const shortCandidates = shortSellingAllowed
-      ? resolvedResults
-          .filter(r => r.direction === 'SHORT')
-          .filter(r => {
-            const t = getThresholds(r.ticker)
-            return r.score >= t.shortScore && countShortPassing(r) >= t.shortPillars
-          })
-      : []
+    // Filter shorts: per-ticker thresholds based on market regime — with rejection tracking
+    const shortCandidates = []
+    if (shortSellingAllowed) {
+      resolvedResults.filter(r => r.direction === 'SHORT').forEach(r => {
+        const t = getThresholds(r.ticker)
+        const pillars = countShortPassing(r)
+        if (r.score < t.shortScore && pillars < t.shortPillars) {
+          addRejection('stage3', 'score_and_pillars_below')
+        } else if (r.score < t.shortScore) {
+          addRejection('stage3', `score_below_${t.shortScore}`)
+        } else if (pillars < t.shortPillars) {
+          addRejection('stage3', `pillars_below_${t.shortPillars}`)
+        } else {
+          shortCandidates.push(r)
+        }
+      })
+    }
+
+    funnel.stage3.passed = longCandidates.length + shortCandidates.length
 
     // Watchlist: anything that didn't make the cut
     const tradeTickers = new Set([
@@ -313,8 +380,9 @@ export async function POST(request) {
       instruments,
       shortSellingAllowed,
       marketTrend,
-      // Regime Gate status - per-market 3-state model
+      // Regime Gate status — MCL-driven or legacy
       regimeGate: {
+        source: (ukMclPolicy && usMclPolicy) ? 'MCL' : 'LEGACY',
         riskOn: isRiskOn,
         regimeState,  // Combined (conservative)
         ukRegimeState,
@@ -322,10 +390,11 @@ export async function POST(request) {
         uk: { ...(regimeGate.uk || { riskOn: true, aboveMa50: true, distributionDays: 0 }), regimeState: ukRegimeState },
         us: { ...(regimeGate.us || { riskOn: true, aboveMa50: true, distributionDays: 0 }), regimeState: usRegimeState },
         positionSizeMultiplier: {
-          // Per-market multipliers — show the "with-tape" side for each
           ukLong: ukThresholds.longSize, ukShort: ukThresholds.shortSize,
           usLong: usThresholds.longSize, usShort: usThresholds.shortSize,
-        }
+        },
+        // MCL diagnostics (null if legacy fallback)
+        mclPolicy: (ukMclPolicy && usMclPolicy) ? { uk: ukMclPolicy, us: usMclPolicy } : null,
       },
       thresholds: {
         // Per-market thresholds
@@ -347,6 +416,30 @@ export async function POST(request) {
         watchlistCount: watchlistCandidates.length,
         topLong: longResults[0]?.ticker || null,
         topShort: shortResults[0]?.ticker || null
+      },
+      // Pipeline funnel — shows where candidates are lost and why
+      funnel: {
+        universe: funnel.universe,
+        fetchErrors,
+        stage1: {
+          label: 'Direction + Pillars',
+          passed: funnel.stage1.passed,
+          failed: funnel.stage1.failed,
+          passRate: funnel.universe > 0 ? `${((funnel.stage1.passed / funnel.universe) * 100).toFixed(1)}%` : '0%',
+          topReasons: Object.entries(funnel.stage1.reasons).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([reason, count]) => ({ reason, count })),
+        },
+        stage2: {
+          label: 'S/R Filter',
+          passed: funnel.stage2.passed,
+          passRate: funnel.stage1.passed > 0 ? `${((funnel.stage2.passed / funnel.stage1.passed) * 100).toFixed(1)}%` : '0%',
+        },
+        stage3: {
+          label: 'Regime Gate',
+          passed: funnel.stage3.passed,
+          failed: funnel.stage3.failed,
+          passRate: funnel.stage2.passed > 0 ? `${((funnel.stage3.passed / funnel.stage2.passed) * 100).toFixed(1)}%` : '0%',
+          topReasons: Object.entries(funnel.stage3.reasons).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([reason, count]) => ({ reason, count })),
+        },
       }
     })
   } catch (error) {
