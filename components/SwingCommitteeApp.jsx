@@ -950,6 +950,7 @@ export default function SwingCommitteeApp() {
                               {p.volatilityCapApplied && <span className="text-amber-400 ml-1">(vol cap)</span>}
                             </p>
                           </div>
+                          <p className="mt-1.5 text-xs font-mono text-gray-500 bg-black/20 rounded px-1.5 py-0.5 break-all">{p.explain}</p>
                         </div>
                       ))}
                     </div>

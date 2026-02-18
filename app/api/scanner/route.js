@@ -132,7 +132,8 @@ export async function POST(request) {
       ukThresholds = { ...ukMclPolicy.thresholds, longSize: ukMclPolicy.longSize, shortSize: ukMclPolicy.shortSize }
       usThresholds = { ...usMclPolicy.thresholds, longSize: usMclPolicy.longSize, shortSize: usMclPolicy.shortSize }
 
-      console.log(`MCL Regime: UK=${ukRegimeState} (score ${ukMclPolicy.regimeScore}, conf ${ukMclPolicy.mclConfidence}${ukMclPolicy.volatilityCapApplied ? ', volCap' : ''}), US=${usRegimeState} (score ${usMclPolicy.regimeScore}, conf ${usMclPolicy.mclConfidence}${usMclPolicy.volatilityCapApplied ? ', volCap' : ''})`)
+      console.log(`UK: ${ukMclPolicy.explain}`)
+      console.log(`US: ${usMclPolicy.explain}`)
     } else {
       // ── Legacy fallback — Market Pulse riskOn + marketTrend ──
       const ukRiskOn = regimeGate.uk?.riskOn ?? isRiskOn
