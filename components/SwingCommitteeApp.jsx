@@ -11,6 +11,134 @@ import {
 } from 'lucide-react';
 import { computeMclPolicy } from '../lib/mclPolicy';
 
+// ─── System Status Summary ──────────────────────────────────────────
+// Data-driven summary computed from scanner results + MCL context.
+// Replaces the old AI-generated "PART A — Market Regime" section.
+function buildSystemSummary(scanResults, marketContextData) {
+  if (!scanResults) return null
+
+  const funnel = scanResults.funnel
+  const gate = scanResults.regimeGate || {}
+  const results = scanResults.results || {}
+  const longs = results.long || []
+  const shorts = results.short || []
+  const watchlist = results.watchlist || []
+  const totalTrades = longs.length + shorts.length
+  const totalScanned = scanResults.totalScanned || funnel?.universe || 0
+
+  // ── Regime posture ──
+  const ukRegime = gate.ukRegimeState || 'YELLOW'
+  const usRegime = gate.usRegimeState || 'YELLOW'
+  const ukRiskOn = gate.uk?.riskOn
+  const usRiskOn = gate.us?.riskOn
+  const mclPolicy = gate.mclPolicy
+
+  let regimePosture
+  if (ukRegime === usRegime) {
+    regimePosture = `Both markets ${ukRegime}${ukRegime === 'YELLOW' ? ' (cautious)' : ukRegime === 'GREEN' ? ' (risk-on)' : ' (defensive)'}.`
+  } else {
+    const ukLabel = ukRiskOn ? 'risk-on' : 'risk-off'
+    const usLabel = usRiskOn ? 'risk-on' : 'risk-off'
+    regimePosture = `Mixed regime: UK ${ukLabel} (${ukRegime}), US ${usLabel} (${usRegime}).`
+  }
+
+  // ── Result summary ──
+  let resultSummary
+  if (totalTrades === 0) {
+    resultSummary = `${totalScanned} stocks scanned, no trades passed all gates.`
+  } else {
+    const parts = []
+    if (longs.length > 0) parts.push(`${longs.length} long${longs.length !== 1 ? 's' : ''}`)
+    if (shorts.length > 0) parts.push(`${shorts.length} short${shorts.length !== 1 ? 's' : ''}`)
+    resultSummary = `${totalScanned} stocks scanned, ${parts.join(' and ')} passed all gates.`
+  }
+
+  // ── Key bottleneck ──
+  let bottleneck = ''
+  if (funnel) {
+    const dirPassRate = funnel.stage1?.passed / funnel.universe
+    const regimePassRate = funnel.stage2?.passed > 0 ? funnel.stage3?.passed / funnel.stage2.passed : 0
+
+    if (dirPassRate < 0.05) {
+      // Very few stocks even have a directional thesis
+      const dirFailed = funnel.universe - funnel.stage1.passed
+      bottleneck = `Only ${funnel.stage1.passed} of ${funnel.universe} stocks had a strong enough directional thesis (4+ pillars) — typical when markets lack clear direction.`
+    } else if (regimePassRate < 0.3 && funnel.stage2.passed > 0) {
+      // Direction filter OK but regime gate is strict
+      const regimeFailed = funnel.stage2.passed - funnel.stage3.passed
+      bottleneck = `${funnel.stage2.passed} stocks had direction, but ${regimeFailed} fell short at the regime gate thresholds.`
+    } else if (totalTrades > 0) {
+      bottleneck = `The pipeline is producing candidates — regime conditions are favourable.`
+    }
+  }
+
+  // ── Closest candidates (from watchlist) ──
+  let closestCandidates = ''
+  if (totalTrades === 0 && watchlist.length > 0) {
+    const top3 = watchlist.slice(0, 3)
+    const labels = top3.map(w => `${w.ticker} ${w.score?.toFixed(0)}%`).join(', ')
+    closestCandidates = `Closest to threshold: ${labels}.`
+  }
+
+  // ── Build TL;DR ──
+  const tldr = [regimePosture, resultSummary, bottleneck, closestCandidates]
+    .filter(Boolean).join(' ')
+
+  // ── Direction breakdown (why few/many passed) ──
+  let directionExplanation = ''
+  if (funnel) {
+    const topReasons = funnel.stage1.topReasons || []
+    if (topReasons.length > 0) {
+      const reasonLabels = {
+        insufficient_pillars: 'insufficient pillar alignment',
+        no_direction: 'no directional signal',
+        near_earnings: 'near earnings',
+        volatility_spike: 'volatility spike',
+        sr_demotion: 'S/R proximity demotion'
+      }
+      const topReason = topReasons[0]
+      directionExplanation = `Most stocks were filtered at Direction because of ${reasonLabels[topReason.reason] || topReason.reason.replace(/_/g, ' ')} (${topReason.count} stocks).`
+    }
+  }
+
+  // ── Regime gate detail ──
+  const ukMcl = mclPolicy?.uk
+  const usMcl = mclPolicy?.us
+  const regimeDetail = {
+    uk: {
+      regime: ukRegime,
+      riskOn: ukRiskOn,
+      longSize: ukMcl?.longSize || gate.positionSizeMultiplier?.ukLong || 1.0,
+      shortSize: ukMcl?.shortSize || gate.positionSizeMultiplier?.ukShort || 1.0,
+      explain: ukMcl?.explain || null,
+    },
+    us: {
+      regime: usRegime,
+      riskOn: usRiskOn,
+      longSize: usMcl?.longSize || gate.positionSizeMultiplier?.usLong || 1.0,
+      shortSize: usMcl?.shortSize || gate.positionSizeMultiplier?.usShort || 1.0,
+      explain: usMcl?.explain || null,
+    },
+  }
+
+  return {
+    tldr,
+    regimePosture,
+    resultSummary,
+    bottleneck,
+    closestCandidates,
+    directionExplanation,
+    regimeDetail,
+    funnel,
+    totalTrades,
+    totalScanned,
+    longs: longs.length,
+    shorts: shorts.length,
+    watchlistCount: watchlist.length,
+    thresholds: scanResults.thresholds,
+  }
+}
+
 export default function SwingCommitteeApp() {
   const [step, setStep] = useState(0);  // Start at welcome screen with Market Pulse
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -1973,40 +2101,6 @@ Format: Ticker, Notes (we'll fetch live prices)"
               );
             })()}
 
-            {/* Manual view + confidence — used by AI analysis only */}
-            <div className="border border-gray-200 rounded-xl p-4">
-              <p className="text-xs text-gray-500 mb-3 font-medium uppercase tracking-wider">For AI Analysis Only (does not affect scanner)</p>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Your Market View</label>
-                  <select
-                    value={formData.regimeView}
-                    onChange={(e) => setFormData({ ...formData, regimeView: e.target.value })}
-                    className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="trending_up">Trending Up</option>
-                    <option value="choppy">Choppy</option>
-                    <option value="volatile">Volatile</option>
-                    <option value="trending_down">Trending Down</option>
-                    <option value="uncertain">Uncertain</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Confidence: {formData.marketSentiment}/10
-                  </label>
-                  <input
-                    type="range"
-                    min="1"
-                    max="10"
-                    value={formData.marketSentiment}
-                    onChange={(e) => setFormData({ ...formData, marketSentiment: parseInt(e.target.value) })}
-                    className="w-full h-2 bg-gradient-to-r from-red-400 via-amber-400 to-green-400 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-gray-700 [&::-webkit-slider-thumb]:shadow [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-gray-700"
-                  />
-                </div>
-              </div>
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Session Type</label>
               <div className="grid grid-cols-3 gap-2">
@@ -2115,14 +2209,22 @@ Format: Ticker, Notes (we'll fetch live prices)"
                     <p className="text-lg font-bold text-center">{analysisResult.signals?.filter(s => !isNoTrade(s)).length || 0}</p>
                   </div>
                   <div className="bg-white/10 rounded-lg p-3 flex flex-col items-center justify-center">
-                    <p className="text-blue-200 text-xs text-center">Market Regime</p>
-                    <p className={`text-lg font-bold text-center ${
-                      marketPulseData?.us?.regime === 'Trending Up' ? 'text-green-400' :
-                      marketPulseData?.us?.regime === 'Trending Down' ? 'text-red-400' :
-                      marketPulseData?.us?.regime === 'Volatile' ? 'text-orange-400' :
-                      marketPulseData?.us?.regime === 'Choppy' ? 'text-amber-400' :
-                      'text-blue-300'
-                    }`}>{marketPulseData?.us?.regime || 'Analyzing...'}</p>
+                    <p className="text-blue-200 text-xs text-center">Regime Gate</p>
+                    {(() => {
+                      const ukR = scanResults?.regimeGate?.ukRegimeState
+                      const usR = scanResults?.regimeGate?.usRegimeState
+                      const regimeColor = (r) => r === 'GREEN' ? 'text-green-400' : r === 'RED' ? 'text-red-400' : 'text-amber-400'
+                      if (ukR && usR) {
+                        return ukR === usR
+                          ? <p className={`text-lg font-bold text-center ${regimeColor(ukR)}`}>{ukR}</p>
+                          : <p className="text-sm font-bold text-center">
+                              <span className={regimeColor(ukR)}>UK {ukR}</span>
+                              <span className="text-blue-300 mx-1">/</span>
+                              <span className={regimeColor(usR)}>US {usR}</span>
+                            </p>
+                      }
+                      return <p className="text-lg font-bold text-center text-blue-300">-</p>
+                    })()}
                   </div>
                 </div>
               </div>
@@ -2150,17 +2252,122 @@ Format: Ticker, Notes (we'll fetch live prices)"
               </div>
 
               {/* Tab Content */}
-              {activeReportTab === 'summary' && (
+              {activeReportTab === 'summary' && (() => {
+                const sysSummary = buildSystemSummary(scanResults, marketContextData)
+                const regimeColors = { GREEN: 'text-green-600', YELLOW: 'text-amber-600', RED: 'text-red-600' }
+                const regimeBgColors = { GREEN: 'bg-green-50 border-green-200', YELLOW: 'bg-amber-50 border-amber-200', RED: 'bg-red-50 border-red-200' }
+
+                return (
                 <div className="space-y-6">
-                  {/* Executive Summary */}
+                  {/* System Status Summary */}
                   <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                    <h2 className="text-lg font-bold text-gray-900 mb-4">Executive Summary</h2>
-                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                      <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">
-                        {analysisResult.summary || 'Analysis complete. Review your recommendations below.'}
-                      </p>
-                    </div>
+                    <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                      <Activity className="w-5 h-5 text-blue-600" />
+                      System Status
+                    </h2>
+
+                    {/* TL;DR */}
+                    {sysSummary ? (
+                      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5">
+                        <p className="text-xs font-medium text-blue-600 uppercase tracking-wider mb-1">TL;DR</p>
+                        <p className="text-gray-800 leading-relaxed">{sysSummary.tldr}</p>
+                      </div>
+                    ) : (
+                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5">
+                        <p className="text-gray-500">Run the scanner to see system status.</p>
+                      </div>
+                    )}
+
+                    {sysSummary?.funnel && (
+                      <>
+                        {/* Pipeline Funnel */}
+                        <div className="mb-5">
+                          <h3 className="text-sm font-semibold text-gray-700 mb-2">Pipeline Funnel</h3>
+                          <div className="bg-gray-50 rounded-lg p-3">
+                            <div className="flex items-center gap-1.5 text-sm">
+                              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-mono font-medium">{sysSummary.funnel.universe}</span>
+                              <span className="text-gray-400">{'\u2192'}</span>
+                              <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-mono">
+                                {sysSummary.funnel.stage1.passed} <span className="text-purple-400 text-xs">({sysSummary.funnel.stage1.passRate})</span>
+                              </span>
+                              <span className="text-gray-400">{'\u2192'}</span>
+                              <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-mono">
+                                {sysSummary.funnel.stage2.passed} <span className="text-amber-400 text-xs">({sysSummary.funnel.stage2.passRate})</span>
+                              </span>
+                              <span className="text-gray-400">{'\u2192'}</span>
+                              <span className={`px-2 py-0.5 rounded font-mono ${sysSummary.funnel.stage3.passed > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                {sysSummary.funnel.stage3.passed} <span className={`text-xs ${sysSummary.funnel.stage3.passed > 0 ? 'text-green-400' : 'text-red-400'}`}>({sysSummary.funnel.stage3.passRate})</span>
+                              </span>
+                            </div>
+                            <div className="flex gap-6 mt-1 text-xs text-gray-400">
+                              <span>Universe</span>
+                              <span>Direction</span>
+                              <span>S/R</span>
+                              <span>Regime</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Direction Breakdown */}
+                        <div className="mb-5">
+                          <h3 className="text-sm font-semibold text-gray-700 mb-2">Direction Breakdown</h3>
+                          <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm text-gray-700">
+                            {sysSummary.bottleneck && (
+                              <p>{sysSummary.bottleneck}</p>
+                            )}
+                            {sysSummary.directionExplanation && (
+                              <p className="text-gray-500 text-xs">{sysSummary.directionExplanation}</p>
+                            )}
+                            {sysSummary.closestCandidates && (
+                              <p className="text-xs font-medium text-amber-700 bg-amber-50 rounded px-2 py-1 inline-block mt-1">{sysSummary.closestCandidates}</p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Regime Gate Detail */}
+                        <div>
+                          <h3 className="text-sm font-semibold text-gray-700 mb-2">Regime Gate</h3>
+                          <div className="grid grid-cols-2 gap-3">
+                            {[
+                              { flag: '\uD83C\uDDEC\uD83C\uDDE7', label: 'UK', detail: sysSummary.regimeDetail.uk },
+                              { flag: '\uD83C\uDDFA\uD83C\uDDF8', label: 'US', detail: sysSummary.regimeDetail.us }
+                            ].map(({ flag, label, detail }) => (
+                              <div key={label} className={`rounded-lg border p-3 ${regimeBgColors[detail.regime] || 'bg-gray-50 border-gray-200'}`}>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className={`font-bold text-sm ${regimeColors[detail.regime] || 'text-gray-700'}`}>
+                                    {flag} {label} {detail.regime}
+                                  </span>
+                                  <span className="text-xs text-gray-500">{detail.riskOn ? 'Risk-On' : 'Risk-Off'}</span>
+                                </div>
+                                <p className="text-xs text-gray-600">
+                                  L {detail.longSize.toFixed(2)}x / S {detail.shortSize.toFixed(2)}x
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                          {sysSummary.thresholds && (
+                            <p className="text-xs text-gray-500 mt-2">
+                              Thresholds: Longs {'\u2265'}{sysSummary.thresholds.long?.score}% {sysSummary.thresholds.long?.pillars}/6 pillars
+                              {' \u2022 '}
+                              Shorts {'\u2265'}{sysSummary.thresholds.short?.score}% {sysSummary.thresholds.short?.pillars}/6 pillars
+                            </p>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
+
+                  {/* AI Executive Summary (if available) */}
+                  {analysisResult.summary && (
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+                      <h2 className="text-lg font-bold text-gray-900 mb-4">AI Analysis</h2>
+                      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                        <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">
+                          {analysisResult.summary}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Chair's Decision */}
                   {analysisResult.chairDecision && (
@@ -2182,7 +2389,8 @@ Format: Ticker, Notes (we'll fetch live prices)"
                     </div>
                   )}
                 </div>
-              )}
+                )
+              })()}
 
               {activeReportTab === 'signals' && (
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">

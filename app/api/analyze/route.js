@@ -857,8 +857,9 @@ ${[formData.ukStocks && '- UK Stocks', formData.usStocks && '- US Stocks', formD
 |-----------|-------|
 | Trade Mode | Short-Term Momentum Swing (1-3 days) |
 | Session Type | ${formData.sessionType} |
-| User Sentiment | ${formData.marketSentiment}/10 |
-| User Regime View | ${formData.regimeView} |
+| UK Regime | ${scannerResults?.regimeGate?.ukRegimeState || 'YELLOW'} (MCL auto) |
+| US Regime | ${scannerResults?.regimeGate?.usRegimeState || 'YELLOW'} (MCL auto) |
+| Regime Source | ${scannerResults?.regimeGate?.source || 'LEGACY'} |
 
 ## Market Pulse (LIVE DATA - USE THESE EXACT LEVELS)
 
@@ -909,14 +910,14 @@ For each watchlist ticker, run the FULL SWING SIGNAL PROTOCOL as defined in Sect
 
 # REQUIRED OUTPUT STRUCTURE
 
-## PART A — MARKET REGIME & MODE SELECTION
+## PART A — MARKET CONTEXT & COMMITTEE STANCE
 
-**UK Market Regime:** [Trending Up / Choppy / Volatile / Trending Down]
-**US Market Regime:** [Trending Up / Choppy / Volatile / Trending Down]
-**Overall Assessment:** [Brief market conditions summary]
+The scanner regime gate is auto-driven by MCL (Market Context Layer). Your role here is to ADD QUALITATIVE INSIGHT, not repeat the quantitative data. Focus on:
 
+**Key Market Themes:** [What is driving current conditions? Earnings season, geopolitics, sector rotation, etc.]
+**Risk Factors to Watch:** [What could change the regime? Upcoming events, support/resistance levels]
 **Committee Stance this session:** [Aggressive / Balanced / Defensive]
-**Justification:** [Based on regime + user sentiment]
+**Justification:** [Based on regime gate output + market context + scanner results]
 
 ---
 
