@@ -7,7 +7,7 @@ import {
   Newspaper, ChevronDown, Activity, Clock, DollarSign, ShieldAlert,
   ArrowUpRight, ArrowDownRight, Crosshair, LineChart, BarChart3,
   AlertTriangle, Eye, Scale, Flame, Gauge, Calendar, BookOpen, Lightbulb,
-  XCircle, RefreshCw, Sparkles
+  XCircle, RefreshCw, Sparkles, Globe
 } from 'lucide-react';
 
 export default function SwingCommitteeApp() {
@@ -27,6 +27,9 @@ export default function SwingCommitteeApp() {
   const [marketPulseData, setMarketPulseData] = useState(null);
   const [isLoadingMarketPulse, setIsLoadingMarketPulse] = useState(true);
   const [marketPulseError, setMarketPulseError] = useState(null);
+  const [marketContextData, setMarketContextData] = useState(null);
+  const [isLoadingMarketContext, setIsLoadingMarketContext] = useState(true);
+  const [marketContextError, setMarketContextError] = useState(null);
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const [suggestions, setSuggestions] = useState(null);
   const [suggestionsError, setSuggestionsError] = useState(null);
@@ -95,9 +98,25 @@ export default function SwingCommitteeApp() {
     }
   };
 
+  // Fetch Market Context Layer on component mount
+  const fetchMarketContext = async () => {
+    setIsLoadingMarketContext(true);
+    setMarketContextError(null);
+    try {
+      const response = await fetch('/api/market-context');
+      if (!response.ok) throw new Error('Failed to fetch market context');
+      const data = await response.json();
+      setMarketContextData(data);
+    } catch (error) {
+      setMarketContextError(error.message);
+    } finally {
+      setIsLoadingMarketContext(false);
+    }
+  };
+
   useEffect(() => {
     fetchMarketPulse();
-    // No localStorage caching - Google Sheets is the source of truth
+    fetchMarketContext();
   }, []);
 
   // Reset all analysis-related state for a fresh start
@@ -723,6 +742,182 @@ export default function SwingCommitteeApp() {
                   </div>
                 </div>
               </div>
+              )}
+            </div>
+
+            {/* Market Context Layer — Advisory Panel */}
+            <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-6 text-white">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center">
+                    <Globe className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-lg">Market Context</h2>
+                    <p className="text-gray-400 text-sm">Advisory — you still decide manually</p>
+                  </div>
+                </div>
+                <button
+                  onClick={fetchMarketContext}
+                  disabled={isLoadingMarketContext}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isLoadingMarketContext ? 'animate-spin' : ''}`} />
+                  {isLoadingMarketContext ? 'Loading...' : 'Refresh'}
+                </button>
+              </div>
+
+              {isLoadingMarketContext && !marketContextData ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={i} className="bg-white/5 rounded-xl p-4 animate-pulse">
+                      <div className="h-4 bg-white/10 rounded w-2/3 mb-3" />
+                      <div className="h-6 bg-white/10 rounded w-1/2 mb-2" />
+                      <div className="h-3 bg-white/10 rounded w-full" />
+                    </div>
+                  ))}
+                </div>
+              ) : marketContextError && !marketContextData ? (
+                <div className="bg-amber-500/20 rounded-xl p-4 text-center">
+                  <p className="text-amber-300">Market context unavailable</p>
+                  <button onClick={fetchMarketContext} className="mt-2 text-sm underline text-amber-200">Try again</button>
+                </div>
+              ) : marketContextData?.factors ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Factor 1: Risk Sentiment */}
+                  {(() => {
+                    const f = marketContextData.factors.riskSentiment;
+                    const color = f.state === 'RISK_ON' ? 'green' : f.state === 'RISK_OFF' ? 'red' : f.state === 'UNKNOWN' ? 'gray' : 'amber';
+                    const icon = f.state === 'RISK_ON' ? '↑' : f.state === 'RISK_OFF' ? '↓' : '→';
+                    const label = f.state === 'RISK_ON' ? 'RISK ON' : f.state === 'RISK_OFF' ? 'RISK OFF' : f.state === 'UNKNOWN' ? 'NO DATA' : 'NEUTRAL';
+                    const confidenceOpacity = f.confidence === 'HIGH' ? 'opacity-100' : f.confidence === 'MEDIUM' ? 'opacity-75' : 'opacity-50';
+                    return (
+                      <div className={`bg-white rounded-xl text-gray-900 overflow-hidden border-l-4 ${
+                        color === 'green' ? 'border-green-500' : color === 'red' ? 'border-red-500' : color === 'gray' ? 'border-gray-400' : 'border-amber-500'
+                      }`}>
+                        <div className="p-3">
+                          <p className="text-xs font-medium text-gray-500 mb-1">Risk Appetite</p>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-lg font-bold ${
+                              color === 'green' ? 'text-green-600' : color === 'red' ? 'text-red-600' : color === 'gray' ? 'text-gray-400' : 'text-amber-600'
+                            }`}>{icon} {label}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-2 text-xs text-gray-500">
+                            <span>ES {f.inputs?.es ? `${f.inputs.es.change > 0 ? '+' : ''}${f.inputs.es.change}%` : '—'}</span>
+                            <span>NQ {f.inputs?.nq ? `${f.inputs.nq.change > 0 ? '+' : ''}${f.inputs.nq.change}%` : '—'}</span>
+                            <span>GC {f.inputs?.gc ? `${f.inputs.gc.change > 0 ? '+' : ''}${f.inputs.gc.change}%` : '—'}</span>
+                          </div>
+                          <p className={`text-xs mt-1 ${confidenceOpacity} ${f.confidence === 'LOW' ? 'italic' : ''} text-gray-400`}>
+                            Confidence: {f.confidence || 'NONE'}{f.confidence === 'LOW' ? ' (limited data)' : ''}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Factor 2: Volatility Regime */}
+                  {(() => {
+                    const f = marketContextData.factors.volatilityRegime;
+                    const color = f.state === 'LOW_VOL' ? 'green' : f.state === 'HIGH_VOL' ? 'red' : f.state === 'UNKNOWN' ? 'gray' : 'amber';
+                    const label = f.state === 'LOW_VOL' ? 'LOW VOL' : f.state === 'HIGH_VOL' ? 'HIGH VOL' : f.state === 'UNKNOWN' ? 'NO DATA' : 'NORMAL';
+                    const trendIcon = f.inputs?.vixTrend === 'rising' ? '↑' : f.inputs?.vixTrend === 'falling' ? '↓' : '→';
+                    const confidenceOpacity = f.confidence === 'HIGH' ? 'opacity-100' : f.confidence === 'MEDIUM' ? 'opacity-75' : 'opacity-50';
+                    return (
+                      <div className={`bg-white rounded-xl text-gray-900 overflow-hidden border-l-4 ${
+                        color === 'green' ? 'border-green-500' : color === 'red' ? 'border-red-500' : color === 'gray' ? 'border-gray-400' : 'border-amber-500'
+                      }`}>
+                        <div className="p-3">
+                          <p className="text-xs font-medium text-gray-500 mb-1">Volatility Regime</p>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-lg font-bold ${
+                              color === 'green' ? 'text-green-600' : color === 'red' ? 'text-red-600' : color === 'gray' ? 'text-gray-400' : 'text-amber-600'
+                            }`}>{label}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-2 text-xs text-gray-500">
+                            <span>VIX {f.inputs?.vixLevel ?? '—'}</span>
+                            {f.inputs?.vix5dAvg && <span>(5d avg {f.inputs.vix5dAvg})</span>}
+                            {f.inputs?.vixTrend && <span>{trendIcon} {f.inputs.vixTrend}</span>}
+                          </div>
+                          <p className={`text-xs mt-1 ${confidenceOpacity} ${f.confidence === 'LOW' ? 'italic' : ''} text-gray-400`}>
+                            Confidence: {f.confidence || 'NONE'}{f.confidence === 'LOW' ? ' (limited data)' : ''}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Factor 3: Macro Pressure */}
+                  {(() => {
+                    const f = marketContextData.factors.macroPressure;
+                    const color = f.state === 'TAILWIND' ? 'green' : f.state === 'HEADWIND' ? 'red' : f.state === 'UNKNOWN' ? 'gray' : 'amber';
+                    const icon = f.state === 'TAILWIND' ? '↑' : f.state === 'HEADWIND' ? '↓' : '→';
+                    const label = f.state === 'UNKNOWN' ? 'NO DATA' : f.state;
+                    const confidenceOpacity = f.confidence === 'HIGH' ? 'opacity-100' : f.confidence === 'MEDIUM' ? 'opacity-75' : 'opacity-50';
+                    return (
+                      <div className={`bg-white rounded-xl text-gray-900 overflow-hidden border-l-4 ${
+                        color === 'green' ? 'border-green-500' : color === 'red' ? 'border-red-500' : color === 'gray' ? 'border-gray-400' : 'border-amber-500'
+                      }`}>
+                        <div className="p-3">
+                          <p className="text-xs font-medium text-gray-500 mb-1">Macro Pressure</p>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-lg font-bold ${
+                              color === 'green' ? 'text-green-600' : color === 'red' ? 'text-red-600' : color === 'gray' ? 'text-gray-400' : 'text-amber-600'
+                            }`}>{icon} {label}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-2 text-xs text-gray-500">
+                            <span>10Y {f.inputs?.yieldChange ? `${f.inputs.yieldChange.change > 0 ? '+' : ''}${f.inputs.yieldChange.change}%` : '—'}</span>
+                            <span>DXY {f.inputs?.dollarChange ? `${f.inputs.dollarChange.change > 0 ? '+' : ''}${f.inputs.dollarChange.change}%` : '—'}</span>
+                          </div>
+                          <p className={`text-xs mt-1 ${confidenceOpacity} ${f.confidence === 'LOW' ? 'italic' : ''} text-gray-400`}>
+                            Confidence: {f.confidence || 'NONE'}{f.confidence === 'LOW' ? ' (limited data)' : ''}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Factor 4: Global Session Flow */}
+                  {(() => {
+                    const f = marketContextData.factors.globalFlow;
+                    const color = f.state === 'FOLLOW_THROUGH' ? 'green' : f.state === 'REVERSAL_RISK' ? 'red' : f.state === 'UNKNOWN' ? 'gray' : 'amber';
+                    const label = f.state === 'FOLLOW_THROUGH' ? 'FOLLOW THROUGH' : f.state === 'REVERSAL_RISK' ? 'REVERSAL RISK' : f.state === 'UNKNOWN' ? 'NO DATA' : 'MIXED';
+                    const confidenceOpacity = f.confidence === 'HIGH' ? 'opacity-100' : f.confidence === 'MEDIUM' ? 'opacity-75' : 'opacity-50';
+                    return (
+                      <div className={`bg-white rounded-xl text-gray-900 overflow-hidden border-l-4 ${
+                        color === 'green' ? 'border-green-500' : color === 'red' ? 'border-red-500' : color === 'gray' ? 'border-gray-400' : 'border-amber-500'
+                      }`}>
+                        <div className="p-3">
+                          <p className="text-xs font-medium text-gray-500 mb-1">Global Session Flow</p>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-lg font-bold ${
+                              color === 'green' ? 'text-green-600' : color === 'red' ? 'text-red-600' : color === 'gray' ? 'text-gray-400' : 'text-amber-600'
+                            }`}>{label}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-2 text-xs text-gray-500">
+                            <span>N225 {f.inputs?.nikkei ? `${f.inputs.nikkei.change > 0 ? '+' : ''}${f.inputs.nikkei.change}%` : '—'}</span>
+                            <span>HSI {f.inputs?.hangSeng ? `${f.inputs.hangSeng.change > 0 ? '+' : ''}${f.inputs.hangSeng.change}%` : '—'}</span>
+                            <span>ASX {f.inputs?.asx ? `${f.inputs.asx.change > 0 ? '+' : ''}${f.inputs.asx.change}%` : '—'}</span>
+                          </div>
+                          <p className={`text-xs mt-1 ${confidenceOpacity} ${f.confidence === 'LOW' ? 'italic' : ''} text-gray-400`}>
+                            Confidence: {f.confidence || 'NONE'}{f.confidence === 'LOW' ? ' (limited data)' : ''}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : null}
+
+              {/* Data quality indicator */}
+              {marketContextData?.dataQuality && (
+                <div className="mt-3 text-xs text-gray-500 text-center">
+                  {marketContextData.dataQuality.available}/{marketContextData.dataQuality.total} tickers available
+                  {marketContextData.dataQuality.tier1Available < marketContextData.dataQuality.tier1Total && (
+                    <span className="text-amber-400 ml-2">
+                      ({marketContextData.dataQuality.tier1Available}/{marketContextData.dataQuality.tier1Total} core)
+                    </span>
+                  )}
+                </div>
               )}
             </div>
 
