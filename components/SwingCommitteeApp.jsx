@@ -1474,29 +1474,31 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                       return (
                         <div className="bg-gray-50 rounded-lg p-3 text-xs mb-2">
                           <p className="font-medium text-gray-700 mb-1.5">Pipeline Funnel</p>
-                          <div className="flex items-center gap-1 text-gray-600">
-                            <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-mono">{f.universe}</span>
-                            <span className="text-gray-400">{'\u2192'}</span>
+                          <div className="inline-grid grid-cols-[auto_auto_auto_auto_auto_auto_auto] items-center gap-x-1 text-gray-600">
+                            <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-mono text-center">{f.universe}</span>
+                            <span className="text-gray-400 text-center">{'\u2192'}</span>
                             <span title={`Stage 1: ${f.stage1.label} (${f.stage1.passRate})\n${f.stage1.topReasons?.map(r => `${r.reason}: ${r.count}`).join('\n') || 'no rejections'}`}
-                              className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-mono cursor-help">
+                              className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-mono cursor-help text-center">
                               {f.stage1.passed} <span className="text-purple-400 font-normal">({f.stage1.passRate})</span>
                             </span>
-                            <span className="text-gray-400">{'\u2192'}</span>
+                            <span className="text-gray-400 text-center">{'\u2192'}</span>
                             <span title={`Stage 2: ${f.stage2.label} (${f.stage2.passRate})`}
-                              className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-mono cursor-help">
+                              className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-mono cursor-help text-center">
                               {f.stage2.passed} <span className="text-amber-400 font-normal">({f.stage2.passRate})</span>
                             </span>
-                            <span className="text-gray-400">{'\u2192'}</span>
+                            <span className="text-gray-400 text-center">{'\u2192'}</span>
                             <span title={`Stage 3: ${f.stage3.label} (${f.stage3.passRate})\n${f.stage3.topReasons?.map(r => `${r.reason}: ${r.count}`).join('\n') || 'no rejections'}`}
-                              className={`px-1.5 py-0.5 rounded font-mono cursor-help ${f.stage3.passed > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                              className={`px-1.5 py-0.5 rounded font-mono cursor-help text-center ${f.stage3.passed > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                               {f.stage3.passed} <span className={f.stage3.passed > 0 ? 'text-green-400' : 'text-red-400'}>({f.stage3.passRate})</span>
                             </span>
-                          </div>
-                          <div className="flex gap-4 mt-1 text-gray-400">
-                            <span>Universe</span>
-                            <span>Direction</span>
-                            <span>S/R</span>
-                            <span>Regime</span>
+                            {/* Labels row — same grid, aligned under boxes */}
+                            <span className="text-gray-400 text-center mt-0.5">Universe</span>
+                            <span></span>
+                            <span className="text-gray-400 text-center mt-0.5">Direction</span>
+                            <span></span>
+                            <span className="text-gray-400 text-center mt-0.5">S/R</span>
+                            <span></span>
+                            <span className="text-gray-400 text-center mt-0.5">Regime</span>
                           </div>
                           {f.stage3.topReasons?.length > 0 && (
                             <div className="mt-1.5 pt-1.5 border-t border-gray-200">
@@ -2284,26 +2286,28 @@ Format: Ticker, Notes (we'll fetch live prices)"
                         <div className="mb-5">
                           <h3 className="text-sm font-semibold text-gray-700 mb-2">Pipeline Funnel</h3>
                           <div className="bg-gray-50 rounded-lg p-3">
-                            <div className="flex items-center gap-1.5 text-sm">
-                              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-mono font-medium">{sysSummary.funnel.universe}</span>
-                              <span className="text-gray-400">{'\u2192'}</span>
-                              <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-mono">
+                            <div className="inline-grid grid-cols-[auto_auto_auto_auto_auto_auto_auto] items-center gap-x-1.5 text-sm">
+                              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-mono font-medium text-center">{sysSummary.funnel.universe}</span>
+                              <span className="text-gray-400 text-center">{'\u2192'}</span>
+                              <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-mono text-center">
                                 {sysSummary.funnel.stage1.passed} <span className="text-purple-400 text-xs">({sysSummary.funnel.stage1.passRate})</span>
                               </span>
-                              <span className="text-gray-400">{'\u2192'}</span>
-                              <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-mono">
+                              <span className="text-gray-400 text-center">{'\u2192'}</span>
+                              <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-mono text-center">
                                 {sysSummary.funnel.stage2.passed} <span className="text-amber-400 text-xs">({sysSummary.funnel.stage2.passRate})</span>
                               </span>
-                              <span className="text-gray-400">{'\u2192'}</span>
-                              <span className={`px-2 py-0.5 rounded font-mono ${sysSummary.funnel.stage3.passed > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                              <span className="text-gray-400 text-center">{'\u2192'}</span>
+                              <span className={`px-2 py-0.5 rounded font-mono text-center ${sysSummary.funnel.stage3.passed > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                 {sysSummary.funnel.stage3.passed} <span className={`text-xs ${sysSummary.funnel.stage3.passed > 0 ? 'text-green-400' : 'text-red-400'}`}>({sysSummary.funnel.stage3.passRate})</span>
                               </span>
-                            </div>
-                            <div className="flex gap-6 mt-1 text-xs text-gray-400">
-                              <span>Universe</span>
-                              <span>Direction</span>
-                              <span>S/R</span>
-                              <span>Regime</span>
+                              {/* Labels row — same grid, aligned under boxes */}
+                              <span className="text-gray-400 text-xs text-center mt-0.5">Universe</span>
+                              <span></span>
+                              <span className="text-gray-400 text-xs text-center mt-0.5">Direction</span>
+                              <span></span>
+                              <span className="text-gray-400 text-xs text-center mt-0.5">S/R</span>
+                              <span></span>
+                              <span className="text-gray-400 text-xs text-center mt-0.5">Regime</span>
                             </div>
                           </div>
                         </div>
