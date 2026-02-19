@@ -38,7 +38,15 @@ export async function POST(request) {
 }
 
 function buildFullPrompt(formData, marketPulse, livePrices = {}, scannerResults = null) {
-  const hasWatchlist = formData.watchlist && formData.watchlist.trim().length > 0
+  const hasUserWatchlist = formData.watchlist && formData.watchlist.trim().length > 0
+  // Auto-populate watchlist from scanner developing stocks if user didn't provide one
+  const scannerWatchlist = scannerResults?.results?.watchlist || []
+  const autoWatchlistTickers = !hasUserWatchlist && scannerWatchlist.length > 0
+    ? scannerWatchlist.slice(0, 10).map(s => s.ticker).join('\n')
+    : ''
+  const hasWatchlist = hasUserWatchlist || autoWatchlistTickers.length > 0
+  const watchlistText = hasUserWatchlist ? formData.watchlist : autoWatchlistTickers
+  const watchlistSource = hasUserWatchlist ? 'user' : 'scanner'
   const hasPositions = formData.openPositions && formData.openPositions.trim().length > 0
   const hasLivePrices = livePrices && Object.keys(livePrices).length > 0
 
@@ -891,8 +899,8 @@ For each open position, provide:
 ${buildScannerGateSection(scannerResults)}
 
 ${hasWatchlist ? `# WATCHLIST TO ANALYZE
-
-${formData.watchlist}
+${watchlistSource === 'scanner' ? `\n**Note:** No user watchlist provided. These are the top developing stocks from the scanner — they did NOT pass the regime gate but are closest to becoming tradeable. Analyze what needs to improve for each.\n` : ''}
+${watchlistText}
 
 ${livePricesSection}
 For each watchlist ticker, run the FULL SWING SIGNAL PROTOCOL as defined in Section 5 above:
