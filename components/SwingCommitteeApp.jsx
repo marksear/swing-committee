@@ -454,6 +454,14 @@ export default function SwingCommitteeApp() {
         };
       }
 
+      // Extract user watchlist tickers so scanner can score them too
+      const userWatchlistTickers = formData.watchlist?.trim()
+        ? formData.watchlist.split('\n')
+            .filter(line => line.trim() && !line.trim().startsWith('#'))
+            .map(line => line.split(',')[0].trim().toUpperCase())
+            .filter(Boolean)
+        : [];
+
       const response = await fetch('/api/scanner', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -470,6 +478,8 @@ export default function SwingCommitteeApp() {
             forex: formData.forex,
             crypto: formData.crypto
           },
+          // User watchlist tickers to include in scan (outside universe)
+          watchlistTickers: userWatchlistTickers,
           // Account data for £ per point position sizing
           accountSize: formData.accountSize,
           riskPerTrade: formData.riskPerTrade
@@ -1228,7 +1238,6 @@ export default function SwingCommitteeApp() {
                     { key: 'usStocks', label: 'US Stocks' },
                     { key: 'indices', label: 'Indices' },
                     { key: 'forex', label: 'Forex' },
-                    { key: 'crypto', label: 'Crypto' },
                   ].map(item => (
                     <button
                       key={item.key}

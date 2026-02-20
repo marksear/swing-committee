@@ -86,6 +86,8 @@ export async function POST(request) {
       regimeGate = { riskOn: true, benchmarkAbove50MA: true, distributionDays: 0 },
       // MCL Policy — auto-computed from Market Context Layer (replaces manual regime when present)
       mclPolicy = null,
+      // User watchlist tickers — scanned alongside the universe (may be outside S&P 100/NQ 25/FTSE 50)
+      watchlistTickers = [],
       // Account data for position sizing (£ per point)
       accountSize = null,
       riskPerTrade = null
@@ -106,6 +108,16 @@ export async function POST(request) {
     // If nothing selected, default to US + UK stocks
     if (tickersToScan.length === 0) {
       tickersToScan = [...UNIVERSE.usStocks, ...UNIVERSE.ukStocks]
+    }
+
+    // Merge user watchlist tickers (deduplicate, may be outside universe)
+    if (watchlistTickers && watchlistTickers.length > 0) {
+      const existingSet = new Set(tickersToScan.map(t => t.toUpperCase()))
+      const newTickers = watchlistTickers.filter(t => !existingSet.has(t.toUpperCase()))
+      if (newTickers.length > 0) {
+        console.log(`Adding ${newTickers.length} user watchlist tickers to scan: ${newTickers.join(', ')}`)
+        tickersToScan = tickersToScan.concat(newTickers)
+      }
     }
 
     // Parse account data for position sizing
