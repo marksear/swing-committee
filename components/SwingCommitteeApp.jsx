@@ -539,27 +539,28 @@ export default function SwingCommitteeApp() {
       'Scoring setups against 6 pillars...',
     );
 
-    // Add per-ticker review steps
+    // Add per-ticker review steps — show ALL tickers being analyzed
     const userWatchlist = formData.watchlist?.trim();
     const scannerWatchlist = scanResults?.results?.watchlist || [];
-    let reviewTickers = [];
 
-    if (userWatchlist) {
-      // Extract tickers from user text
-      reviewTickers = userWatchlist.split('\n')
-        .filter(line => line.trim() && !line.trim().startsWith('#'))
-        .map(line => line.split(',')[0].trim().toUpperCase())
-        .filter(Boolean);
-    } else if (scannerWatchlist.length > 0) {
-      // Auto-populated from scanner developing stocks
-      reviewTickers = scannerWatchlist.slice(0, 5).map(s => s.ticker);
-    }
-
-    // Add scanner-approved trades too
+    // Scanner-approved trades
     const approvedLongs = scanResults?.results?.long || [];
     const approvedShorts = scanResults?.results?.short || [];
     const approvedTickers = [...approvedLongs, ...approvedShorts].map(s => s.ticker);
-    const allReviewTickers = [...approvedTickers, ...reviewTickers];
+
+    // User-typed watchlist tickers
+    const userTickers = userWatchlist
+      ? userWatchlist.split('\n')
+          .filter(line => line.trim() && !line.trim().startsWith('#'))
+          .map(line => line.split(',')[0].trim().toUpperCase())
+          .filter(Boolean)
+      : [];
+
+    // Scanner developing stocks (always included)
+    const developingTickers = scannerWatchlist.slice(0, 5).map(s => s.ticker);
+
+    // Combine all, deduplicate
+    const allReviewTickers = [...new Set([...approvedTickers, ...userTickers, ...developingTickers])];
 
     if (allReviewTickers.length > 0) {
       baseSteps.push('Generating trade signals...');

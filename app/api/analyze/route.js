@@ -42,14 +42,11 @@ export async function POST(request) {
 
 function buildFullPrompt(formData, marketPulse, livePrices = {}, scannerResults = null) {
   const hasUserWatchlist = formData.watchlist && formData.watchlist.trim().length > 0
-  // Auto-populate watchlist from scanner developing stocks if user didn't provide one
+  // Scanner developing stocks (always available if scanner ran)
   const scannerWatchlist = scannerResults?.results?.watchlist || []
-  const autoWatchlistTickers = !hasUserWatchlist && scannerWatchlist.length > 0
-    ? scannerWatchlist.slice(0, 5).map(s => s.ticker).join('\n')
-    : ''
-  const hasWatchlist = hasUserWatchlist || autoWatchlistTickers.length > 0
-  const watchlistText = hasUserWatchlist ? formData.watchlist : autoWatchlistTickers
-  const watchlistSource = hasUserWatchlist ? 'user' : 'scanner'
+  const scannerDevelopingTickers = scannerWatchlist.slice(0, 5).map(s => s.ticker).join('\n')
+  const hasScannerDeveloping = scannerDevelopingTickers.length > 0
+  const hasWatchlist = hasUserWatchlist || hasScannerDeveloping
   const hasPositions = formData.openPositions && formData.openPositions.trim().length > 0
   const hasLivePrices = livePrices && Object.keys(livePrices).length > 0
 
@@ -901,26 +898,13 @@ For each open position, provide:
 
 ${buildScannerGateSection(scannerResults)}
 
-${hasWatchlist ? (watchlistSource === 'scanner' ? `# DEVELOPING STOCKS (auto-populated from scanner)
+${hasUserWatchlist ? `# USER WATCHLIST — FULL ANALYSIS REQUIRED
 
-These are the top developing stocks from the scanner — they did NOT pass the regime gate but are closest to becoming tradeable. Keep analysis BRIEF for each.
-
-${watchlistText}
-
-For each ticker, provide a SHORT summary (3-5 lines max):
-1. Current score and what pillar(s) are missing
-2. What needs to improve to become tradeable (e.g. "needs RSI to cool" or "waiting for volume confirmation")
-3. Key level to watch (entry trigger)
-4. Verdict: WATCH / ALMOST READY / NOT YET
-
-Do NOT run the full 9-step protocol — these are developing setups, not trade candidates.
-
----` : `# WATCHLIST TO ANALYZE
-
-${watchlistText}
+${formData.watchlist}
 
 ${livePricesSection}
-For each watchlist ticker, run the FULL SWING SIGNAL PROTOCOL as defined in Section 5 above:
+**IMPORTANT:** These tickers were specifically requested by the user. They may be OUTSIDE the scanner universe.
+Run the FULL SWING SIGNAL PROTOCOL for each, even if they were not in the scanner results:
 1. Company Snapshot (sector, market cap, avg volume)
 2. Setup Identification (direction, setup type, timeframe, confidence)
 3. Levels (entry zone, stop loss, targets) — include BOTH standard prices AND spread bet points
@@ -931,7 +915,25 @@ For each watchlist ticker, run the FULL SWING SIGNAL PROTOCOL as defined in Sect
 8. Trade Management Plan
 9. Final Verdict
 
----`) : '# WATCHLIST\n\nNo watchlist provided.\n\n---'}
+---` : ''}
+
+${hasScannerDeveloping ? `# DEVELOPING STOCKS (from scanner — brief review only)
+
+These are the top developing stocks from the scanner — they did NOT pass the regime gate but are closest to becoming tradeable. Keep analysis BRIEF for each.
+
+${scannerDevelopingTickers}
+
+For each ticker, provide a SHORT summary (3-5 lines max):
+1. Current score and what pillar(s) are missing
+2. What needs to improve to become tradeable (e.g. "needs RSI to cool" or "waiting for volume confirmation")
+3. Key level to watch (entry trigger)
+4. Verdict: WATCH / ALMOST READY / NOT YET
+
+Do NOT run the full 9-step protocol — these are developing setups, not trade candidates.
+
+---` : ''}
+
+${!hasWatchlist ? '# WATCHLIST\n\nNo watchlist provided.\n\n---' : ''}
 
 # REQUIRED OUTPUT STRUCTURE
 
