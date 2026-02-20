@@ -74,6 +74,27 @@ const UNIVERSE = {
   ]
 }
 
+// =====================================================
+// RELATIVE STRENGTH SLOPE CONFIG
+// RS bonus is a post-pillar score modifier (Stage 1B)
+// Leaders get boosted for longs, laggards for shorts
+// =====================================================
+const RS_CONFIG = {
+  us_benchmark: 'SPY',
+  uk_benchmark: '^FTSE',     // ISF.L has low volume; ^FTSE is more reliable
+  lookback_bars: 20,
+  leader_pct: 70,
+  strong_leader_pct: 85,
+  laggard_pct: 30,
+  strong_laggard_pct: 15,
+  bonus_leader: 3,
+  bonus_strong_leader: 5,
+  bonus_laggard: 3,
+  bonus_strong_laggard: 5,
+  bonus_cap: 5,
+  base_score_floor_for_bonus: 65,
+}
+
 export async function POST(request) {
   try {
     const {
@@ -179,11 +200,18 @@ export async function POST(request) {
       : (ukRegimeState === 'YELLOW' || usRegimeState === 'YELLOW') ? 'YELLOW'
       : 'GREEN'
 
-    // Fetch historical data — each ticker gets its OWN market's regime state
+    // Fetch benchmark data for RS Slope computation (before individual ticker scans)
+    const [usBenchmarkCloses, ukBenchmarkCloses] = await Promise.all([
+      instruments.usStocks ? fetchBenchmarkCloses(RS_CONFIG.us_benchmark) : null,
+      instruments.ukStocks ? fetchBenchmarkCloses(RS_CONFIG.uk_benchmark) : null,
+    ])
+
+    // Fetch historical data — each ticker gets its OWN market's regime state + benchmark
     const scanResults = await Promise.all(
       tickersToScan.map(ticker => {
         const tickerRegime = ticker.endsWith('.L') ? ukRegimeState : usRegimeState
-        return scanTicker(ticker, mode, acctSize, riskPct, tickerRegime)
+        const bmCloses = ticker.endsWith('.L') ? ukBenchmarkCloses : usBenchmarkCloses
+        return scanTicker(ticker, mode, acctSize, riskPct, tickerRegime, bmCloses)
       })
     )
 
@@ -205,7 +233,42 @@ export async function POST(request) {
     const allResults = scanResults.filter(r => r && !r.error)
     const fetchErrors = scanResults.filter(r => !r || r.error).length
 
-    // Stage 1: Direction assignment (happened inside scanTicker)
+    // =====================================================
+    // STAGE 1B: RS SLOPE BONUS
+    // Apply percentile-ranked RS slope bonus to scores,
+    // then re-evaluate direction for boosted WATCH stocks
+    // =====================================================
+    applyRsSlope(allResults, shortSellingAllowed)
+
+    // Re-evaluate direction for WATCH/NONE stocks where RS bonus may push them past the gate
+    allResults.forEach(r => {
+      if (r.direction !== 'WATCH' && r.direction !== 'NONE') return
+      if (!r.relativeStrength || (r.relativeStrength.longBonus === 0 && r.relativeStrength.shortBonus === 0)) return
+      if (r.srDemotion) return  // S/R demotions stay demoted regardless of RS
+
+      // Re-check direction gates with RS-boosted scores
+      const hasLongSignal = (r.indicators?.priceVsMa20 > 0) || (r.indicators?.momentum5d > 0)
+      const hasShortSignal = (r.indicators?.priceVsMa20 < 0) || (r.indicators?.momentum5d < 0)
+
+      const longPasses = r.longPassing >= 4 && r.longScore >= 50 && hasLongSignal
+      const shortPasses = shortSellingAllowed && r.shortPassing >= 4 && r.shortScore >= 50 && hasShortSignal
+
+      if (longPasses && shortPasses) {
+        r.direction = 'BOTH'
+        r.score = Math.max(r.longScore, r.shortScore)
+        r.reasoning = `📈 RS boost → BOTH (L ${r.longScore.toFixed(0)}%, S ${r.shortScore.toFixed(0)}%). ${r.reasoning}`
+      } else if (longPasses) {
+        r.direction = 'LONG'
+        r.score = r.longScore
+        r.reasoning = `📈 RS boost → LONG (${r.longScore.toFixed(0)}%). ${r.reasoning}`
+      } else if (shortPasses) {
+        r.direction = 'SHORT'
+        r.score = r.shortScore
+        r.reasoning = `📉 RS boost → SHORT (${r.shortScore.toFixed(0)}%). ${r.reasoning}`
+      }
+    })
+
+    // Stage 1: Direction assignment (happened inside scanTicker + RS boost re-evaluation)
     // Count by direction outcomes
     allResults.forEach(r => {
       if (r.direction === 'LONG' || r.direction === 'SHORT' || r.direction === 'BOTH') {
@@ -327,6 +390,20 @@ export async function POST(request) {
       .sort((a, b) => b.score - a.score)
       .slice(0, 15)
 
+    // ── NEAR MISS DETECTION ──
+    const nearMisses = detectNearMisses({
+      allResults,
+      resolvedResults,
+      tradeTickers,
+      getThresholds,
+      getTickerRegime,
+      ukMclPolicy,
+      usMclPolicy,
+      shortSellingAllowed,
+      countLongPassing,
+      countShortPassing,
+    })
+
     // For display: use per-market thresholds
     const longScoreThreshold = Math.min(ukThresholds.longScore, usThresholds.longScore)
     const shortScoreThreshold = Math.min(ukThresholds.shortScore, usThresholds.shortScore)
@@ -423,6 +500,7 @@ export async function POST(request) {
         short: shortResults,
         watchlist: watchlistCandidates
       },
+      nearMisses,
       summary: {
         longCount: longResults.length,
         shortCount: shortResults.length,
@@ -614,7 +692,398 @@ function computeBarFreshness(timestamps, ticker) {
   return { barFresh, lastBarDate, expectedBarDate, barFreshDiag }
 }
 
-async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, regimeState = 'YELLOW') {
+// =====================================================
+// RS SLOPE BONUS APPLICATION (Stage 1B)
+// Computes per-universe percentile ranks, classifies
+// leaders/laggards, and applies score bonus in-place
+// =====================================================
+function applyRsSlope(allResults, shortSellingAllowed) {
+  const usResults = allResults.filter(r => !r.ticker.endsWith('.L') && r.indicators?.rsSlope20 != null)
+  const ukResults = allResults.filter(r => r.ticker.endsWith('.L') && r.indicators?.rsSlope20 != null)
+
+  function computePercentilesAndApply(results) {
+    if (results.length < 3) return  // Too few to rank meaningfully
+
+    // Sort by rsSlope ascending for percentile ranking
+    const sorted = [...results].sort((a, b) => a.indicators.rsSlope20 - b.indicators.rsSlope20)
+    const n = sorted.length
+
+    // Assign midpoint percentile rank
+    sorted.forEach((r, i) => {
+      r._rsPct = ((i + 0.5) / n) * 100
+    })
+
+    // Classify and compute bonus
+    results.forEach(r => {
+      const pct = r._rsPct
+      if (pct == null) return
+
+      let classification, longBonus = 0, shortBonus = 0
+
+      if (pct >= RS_CONFIG.strong_leader_pct) {
+        classification = 'RS_STRONG_LEADER'
+        longBonus = RS_CONFIG.bonus_strong_leader
+      } else if (pct >= RS_CONFIG.leader_pct) {
+        classification = 'RS_LEADER'
+        longBonus = RS_CONFIG.bonus_leader
+      } else if (pct <= RS_CONFIG.strong_laggard_pct) {
+        classification = 'RS_STRONG_LAGGARD'
+        shortBonus = RS_CONFIG.bonus_strong_laggard
+      } else if (pct <= RS_CONFIG.laggard_pct) {
+        classification = 'RS_LAGGARD'
+        shortBonus = RS_CONFIG.bonus_laggard
+      } else {
+        classification = 'RS_NEUTRAL'
+      }
+
+      // Safety: only apply if base score is not junk
+      const longBase = r.longScore || 0
+      const shortBase = r.shortScore || 0
+      const effectiveLongBonus = longBase >= RS_CONFIG.base_score_floor_for_bonus
+        ? Math.min(longBonus, RS_CONFIG.bonus_cap) : 0
+      const effectiveShortBonus = shortBase >= RS_CONFIG.base_score_floor_for_bonus
+        ? Math.min(shortBonus, RS_CONFIG.bonus_cap) : 0
+
+      // Apply bonus to scores
+      if (effectiveLongBonus > 0) {
+        r.longScore = (r.longScore || 0) + effectiveLongBonus
+      }
+      if (effectiveShortBonus > 0) {
+        r.shortScore = (r.shortScore || 0) + effectiveShortBonus
+      }
+
+      // Update main score for the determined direction
+      if (effectiveLongBonus > 0 || effectiveShortBonus > 0) {
+        if (r.direction === 'LONG' || r.direction === 'BOTH') {
+          r.score = Math.max(r.score || 0, r.longScore)
+        } else if (r.direction === 'SHORT') {
+          r.score = r.shortScore
+        } else {
+          // WATCH or NONE — use best side
+          r.score = Math.max(r.longScore || 0, r.shortScore || 0)
+        }
+      }
+
+      // Attach RS data to result for downstream use
+      r.relativeStrength = {
+        rsPct: Math.round(pct * 10) / 10,
+        rsSlope: r.indicators.rsSlope20,
+        classification,
+        longBonus: effectiveLongBonus,
+        shortBonus: effectiveShortBonus,
+      }
+
+      // Clean up temp field
+      delete r._rsPct
+
+      if (classification !== 'RS_NEUTRAL') {
+        console.log(`[RS] ${r.ticker}: pct=${pct.toFixed(1)}, ${classification}, longBonus=${effectiveLongBonus}, shortBonus=${effectiveShortBonus}`)
+      }
+    })
+  }
+
+  computePercentilesAndApply(usResults)
+  computePercentilesAndApply(ukResults)
+
+  const totalBoosted = allResults.filter(r => r.relativeStrength && (r.relativeStrength.longBonus > 0 || r.relativeStrength.shortBonus > 0)).length
+  console.log(`[RS] Applied RS slope bonus to ${totalBoosted} stocks`)
+}
+
+// =====================================================
+// NEAR MISS DETECTION
+// Finds stocks that failed by exactly one narrow margin
+// Types: A (score), B (pillars), C (S/R), D (regime)
+// =====================================================
+function detectNearMisses({
+  allResults,
+  resolvedResults,
+  tradeTickers,
+  getThresholds,
+  getTickerRegime,
+  ukMclPolicy,
+  usMclPolicy,
+  shortSellingAllowed,
+  countLongPassing,
+  countShortPassing,
+}) {
+  const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
+  const nearMissMap = new Map() // key: `${ticker}_${direction}` → array of failure types
+
+  function addNearMiss(ticker, market, direction, stageFailed, failureType, required, actual, deltas, indicators, relativeStrength) {
+    const key = `${ticker}_${direction}`
+    if (!nearMissMap.has(key)) nearMissMap.set(key, [])
+    nearMissMap.get(key).push({
+      ticker, market, direction, stageFailed, failureType, required, actual, deltas, indicators, relativeStrength
+    })
+  }
+
+  // ── STAGE 1 NEAR MISSES (from WATCH/NONE stocks) ──
+  // These are stocks that didn't get a LONG/SHORT/BOTH direction
+  allResults.forEach(r => {
+    if (!r || r.error || !r.pillars) return
+    if (r.direction !== 'WATCH' && r.direction !== 'NONE') return
+    if (r.srDemotion) return // S/R demotions are Stage 2, not Stage 1
+    if (tradeTickers.has(r.ticker)) return
+
+    const market = r.ticker.endsWith('.L') ? 'UK' : 'US'
+
+    // Check long side near miss
+    const longPassing = r.longPassing ?? Object.values(r.pillars).filter(p => p.longScore >= 5).length
+    const longScorePct = r.longScore ?? 0
+    const hasLongSignal = (r.indicators?.priceVsMa20 > 0) || (r.indicators?.momentum5d > 0)
+
+    // Stage 1 LONG gate: longPassing >= 4 AND longScorePercent >= 50 AND hasLongSignal
+    // (actually Stage 1 permissive is >= 3 pillars, >= 45%, but for LONG direction it's >= 4, >= 50%)
+    if (hasLongSignal) {
+      const scoreFails = longScorePct < 50
+      const pillarFails = longPassing < 4
+      const scoreDelta = scoreFails ? (50 - longScorePct) : 0
+      const pillarDelta = pillarFails ? (4 - longPassing) : 0
+
+      // Type A: score < 50 but gap ≤ 5pts, pillars OK
+      if (scoreFails && !pillarFails && scoreDelta <= 5) {
+        addNearMiss(r.ticker, market, 'LONG', 1, 'A',
+          { scorePct: 50, pillarsMin: 4 },
+          { scorePct: Math.round(longScorePct * 10) / 10, pillarsPassed: longPassing },
+          { scorePts: Math.round(scoreDelta * 10) / 10, pillars: 0, airPocketShortfallRatio: 0 },
+          r.indicators, r.relativeStrength)
+      }
+      // Type B: pillars == 3 (exactly 1 short of 4), score OK
+      if (pillarFails && !scoreFails && pillarDelta === 1) {
+        addNearMiss(r.ticker, market, 'LONG', 1, 'B',
+          { scorePct: 50, pillarsMin: 4 },
+          { scorePct: Math.round(longScorePct * 10) / 10, pillarsPassed: longPassing },
+          { scorePts: 0, pillars: 1, airPocketShortfallRatio: 0 },
+          r.indicators, r.relativeStrength)
+      }
+    }
+
+    // Check short side near miss
+    if (shortSellingAllowed) {
+      const shortPassing = r.shortPassing ?? Object.values(r.pillars).filter(p => p.shortScore >= 5).length
+      const shortScorePct = r.shortScore ?? 0
+      const hasShortSignal = (r.indicators?.priceVsMa20 < 0) || (r.indicators?.momentum5d < 0)
+
+      if (hasShortSignal) {
+        const scoreFails = shortScorePct < 50
+        const pillarFails = shortPassing < 4
+        const scoreDelta = scoreFails ? (50 - shortScorePct) : 0
+        const pillarDelta = pillarFails ? (4 - shortPassing) : 0
+
+        if (scoreFails && !pillarFails && scoreDelta <= 5) {
+          addNearMiss(r.ticker, market, 'SHORT', 1, 'A',
+            { scorePct: 50, pillarsMin: 4 },
+            { scorePct: Math.round(shortScorePct * 10) / 10, pillarsPassed: shortPassing },
+            { scorePts: Math.round(scoreDelta * 10) / 10, pillars: 0, airPocketShortfallRatio: 0 },
+            r.indicators, r.relativeStrength)
+        }
+        if (pillarFails && !scoreFails && pillarDelta === 1) {
+          addNearMiss(r.ticker, market, 'SHORT', 1, 'B',
+            { scorePct: 50, pillarsMin: 4 },
+            { scorePct: Math.round(shortScorePct * 10) / 10, pillarsPassed: shortPassing },
+            { scorePts: 0, pillars: 1, airPocketShortfallRatio: 0 },
+            r.indicators, r.relativeStrength)
+        }
+      }
+    }
+  })
+
+  // ── STAGE 2 NEAR MISSES (from S/R-demoted stocks) ──
+  allResults.forEach(r => {
+    if (!r || r.error || !r.srDemotion) return
+    if (tradeTickers.has(r.ticker)) return
+
+    const market = r.ticker.endsWith('.L') ? 'UK' : 'US'
+    const origDir = r.originalDirection
+
+    // For longs: check resistance distance
+    if ((origDir === 'LONG' || origDir === 'BOTH') && r.indicators?.nearestResistance?.distanceR) {
+      const distR = parseFloat(r.indicators.nearestResistance.distanceR)
+      const threshold = 0.85 // 1R - 0.15R buffer
+      if (distR < threshold && distR > 0) {
+        const shortfallRatio = (threshold - distR) / threshold
+        if (shortfallRatio <= 0.10) {
+          addNearMiss(r.ticker, market, 'LONG', 2, 'C',
+            { scorePct: null, pillarsMin: null },
+            { scorePct: null, pillarsPassed: null },
+            { scorePts: 0, pillars: 0, airPocketShortfallRatio: Math.round(shortfallRatio * 1000) / 1000 },
+            r.indicators, r.relativeStrength)
+        }
+      }
+    }
+
+    // For shorts: check support distance
+    if ((origDir === 'SHORT' || origDir === 'BOTH') && shortSellingAllowed && r.indicators?.nearestSupport?.distanceR) {
+      const distR = parseFloat(r.indicators.nearestSupport.distanceR)
+      const threshold = 0.85
+      if (distR < threshold && distR > 0) {
+        const shortfallRatio = (threshold - distR) / threshold
+        if (shortfallRatio <= 0.10) {
+          addNearMiss(r.ticker, market, 'SHORT', 2, 'C',
+            { scorePct: null, pillarsMin: null },
+            { scorePct: null, pillarsPassed: null },
+            { scorePts: 0, pillars: 0, airPocketShortfallRatio: Math.round(shortfallRatio * 1000) / 1000 },
+            r.indicators, r.relativeStrength)
+        }
+      }
+    }
+  })
+
+  // ── STAGE 3 NEAR MISSES (from resolved LONG/SHORT that failed regime gate) ──
+  resolvedResults.forEach(r => {
+    if (!r || r.error || !r.pillars) return
+    if (r.direction !== 'LONG' && r.direction !== 'SHORT') return
+    if (tradeTickers.has(r.ticker)) return // Already a trade candidate
+
+    const market = r.ticker.endsWith('.L') ? 'UK' : 'US'
+    const tickerRegime = getTickerRegime(r.ticker)
+    const t = getThresholds(r.ticker)
+    const mclPolicy = market === 'UK' ? ukMclPolicy : usMclPolicy
+
+    // Type D: Only for YELLOW regime — RED is too far gone
+    if (tickerRegime === 'RED' && mclPolicy?.volatilityCapApplied) return
+    const isRegimeNearMiss = tickerRegime === 'YELLOW'
+
+    if (r.direction === 'LONG') {
+      const pillars = countLongPassing(r)
+      const scorePct = r.score
+      const requiredScore = t.longScore
+      const requiredPillars = t.longPillars
+      const scoreDelta = scorePct < requiredScore ? (requiredScore - scorePct) : 0
+      const pillarDelta = pillars < requiredPillars ? (requiredPillars - pillars) : 0
+
+      // Only if it actually failed Stage 3
+      if (scorePct >= requiredScore && pillars >= requiredPillars) return
+
+      // Type A: score within 5pts, pillars OK
+      if (scoreDelta > 0 && scoreDelta <= 5 && pillarDelta === 0) {
+        addNearMiss(r.ticker, market, 'LONG', 3, isRegimeNearMiss ? 'D' : 'A',
+          { scorePct: requiredScore, pillarsMin: requiredPillars },
+          { scorePct: Math.round(scorePct * 10) / 10, pillarsPassed: pillars },
+          { scorePts: Math.round(scoreDelta * 10) / 10, pillars: 0, airPocketShortfallRatio: 0 },
+          r.indicators, r.relativeStrength)
+      }
+      // Type B: pillars exactly 1 short, score OK
+      if (pillarDelta === 1 && scoreDelta === 0) {
+        addNearMiss(r.ticker, market, 'LONG', 3, isRegimeNearMiss ? 'D' : 'B',
+          { scorePct: requiredScore, pillarsMin: requiredPillars },
+          { scorePct: Math.round(scorePct * 10) / 10, pillarsPassed: pillars },
+          { scorePts: 0, pillars: 1, airPocketShortfallRatio: 0 },
+          r.indicators, r.relativeStrength)
+      }
+    }
+
+    if (r.direction === 'SHORT' && shortSellingAllowed) {
+      const pillars = countShortPassing(r)
+      const scorePct = r.score
+      const requiredScore = t.shortScore
+      const requiredPillars = t.shortPillars
+      const scoreDelta = scorePct < requiredScore ? (requiredScore - scorePct) : 0
+      const pillarDelta = pillars < requiredPillars ? (requiredPillars - pillars) : 0
+
+      if (scorePct >= requiredScore && pillars >= requiredPillars) return
+
+      if (scoreDelta > 0 && scoreDelta <= 5 && pillarDelta === 0) {
+        addNearMiss(r.ticker, market, 'SHORT', 3, isRegimeNearMiss ? 'D' : 'A',
+          { scorePct: requiredScore, pillarsMin: requiredPillars },
+          { scorePct: Math.round(scorePct * 10) / 10, pillarsPassed: pillars },
+          { scorePts: Math.round(scoreDelta * 10) / 10, pillars: 0, airPocketShortfallRatio: 0 },
+          r.indicators, r.relativeStrength)
+      }
+      if (pillarDelta === 1 && scoreDelta === 0) {
+        addNearMiss(r.ticker, market, 'SHORT', 3, isRegimeNearMiss ? 'D' : 'B',
+          { scorePct: requiredScore, pillarsMin: requiredPillars },
+          { scorePct: Math.round(scorePct * 10) / 10, pillarsPassed: pillars },
+          { scorePts: 0, pillars: 1, airPocketShortfallRatio: 0 },
+          r.indicators, r.relativeStrength)
+      }
+    }
+  })
+
+  // ── SINGLE-FAILURE RULE: only keep ticker+direction with exactly 1 failure type ──
+  const validNearMisses = []
+  for (const [key, failures] of nearMissMap.entries()) {
+    if (failures.length === 1) {
+      validNearMisses.push(failures[0])
+    }
+    // 2+ failure types for same ticker+direction = discard (too far away)
+  }
+
+  // ── RANKING ──
+  const ranked = validNearMisses.map(nm => {
+    const ind = nm.indicators || {}
+    const avgVol = ind.avgVolume20 || 0
+    const liqTier = avgVol >= 1000000 ? 'A' : avgVol >= 250000 ? 'B' : 'C'
+    const volMult = ind.volumeRatio || 1.0
+    const atrPct = ind.atr || 0
+    const atrSoftCap = nm.market === 'UK' ? 7 : 6
+
+    const rankScore = 100
+      - 10 * (nm.deltas.scorePts || 0)
+      - 25 * (nm.deltas.pillars || 0)
+      - 200 * (nm.deltas.airPocketShortfallRatio || 0)
+      + (liqTier === 'A' ? 20 : liqTier === 'B' ? 10 : 0)
+      + 10 * clamp(volMult - 1.0, 0, 2)
+      - 5 * clamp((atrPct - atrSoftCap) / 2, 0, 5)
+
+    // Build badges and explain strings
+    const badges = []
+    let explain = 'Near miss: '
+
+    if (nm.failureType === 'A') {
+      badges.push(`-${nm.deltas.scorePts} score`)
+      explain += `score -${nm.deltas.scorePts}pts (${nm.actual.scorePct}% vs ${nm.required.scorePct}%). Passed pillars.`
+    } else if (nm.failureType === 'B') {
+      badges.push(`-1 pillar`)
+      explain += `${nm.actual.pillarsPassed}/${nm.required.pillarsMin} pillars (1 short). Score OK (${nm.actual.scorePct}%).`
+    } else if (nm.failureType === 'C') {
+      badges.push(`S/R ${(nm.deltas.airPocketShortfallRatio * 100).toFixed(0)}%`)
+      explain += `S/R air pocket shortfall ${(nm.deltas.airPocketShortfallRatio * 100).toFixed(1)}% from threshold.`
+    } else if (nm.failureType === 'D') {
+      if (nm.deltas.scorePts > 0) {
+        badges.push(`-${nm.deltas.scorePts} regime`)
+        explain += `regime gate: score -${nm.deltas.scorePts}pts (${nm.actual.scorePct}% vs ${nm.required.scorePct}%).`
+      } else {
+        badges.push(`-1 pillar regime`)
+        explain += `regime gate: ${nm.actual.pillarsPassed}/${nm.required.pillarsMin} pillars.`
+      }
+    }
+
+    explain += ` Liquidity ${liqTier}.`
+
+    return {
+      ticker: nm.ticker,
+      market: nm.market,
+      direction: nm.direction,
+      stageFailed: nm.stageFailed,
+      failureType: nm.failureType,
+      required: nm.required,
+      actual: nm.actual,
+      deltas: nm.deltas,
+      rankScore: Math.round(rankScore * 10) / 10,
+      badges,
+      explain,
+      // Include score for watchlist compatibility
+      score: nm.actual.scorePct || 0,
+      // Pass through RS data for UI badges
+      relativeStrength: nm.relativeStrength || null,
+    }
+  })
+
+  // Sort descending by rankScore, split into long/short, return top 10 each
+  ranked.sort((a, b) => b.rankScore - a.rankScore)
+
+  const longNearMisses = ranked.filter(nm => nm.direction === 'LONG').slice(0, 10)
+  const shortNearMisses = ranked.filter(nm => nm.direction === 'SHORT').slice(0, 10)
+
+  console.log(`[NearMisses] ${longNearMisses.length} long, ${shortNearMisses.length} short near misses detected`)
+  longNearMisses.forEach(nm => console.log(`  LONG: ${nm.ticker} type=${nm.failureType} rank=${nm.rankScore} ${nm.explain}`))
+  shortNearMisses.forEach(nm => console.log(`  SHORT: ${nm.ticker} type=${nm.failureType} rank=${nm.rankScore} ${nm.explain}`))
+
+  return { long: longNearMisses, short: shortNearMisses }
+}
+
+async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, regimeState = 'YELLOW', benchmarkCloses = null) {
   try {
     // Fetch 90 days of daily data for short-term momentum analysis
     const days = 90
@@ -670,6 +1139,12 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
       ? indicators.momentum20d - sectorMomentum20d
       : null
 
+    // RS Slope vs market benchmark (raw value — percentile ranking done in POST handler)
+    const validClosesForRS = closes.filter(c => c !== null)
+    indicators.rsSlope20 = benchmarkCloses
+      ? computeRsSlope(validClosesForRS, benchmarkCloses, RS_CONFIG.lookback_bars)
+      : null
+
     // Calculate pillar scores
     const pillars = calculatePillarScores(indicators)
 
@@ -681,10 +1156,19 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
     // BOTH → resolve to best single direction for downstream processing
     // Store both scores so Stage 3 (regime filter) can pick the regime-aligned side
     // =====================================================
-    let longScore = directionResult.longScore || null
-    let shortScore = directionResult.shortScore || null
-    let longPassingFromDir = directionResult.longPassing || null
-    let shortPassingFromDir = directionResult.shortPassing || null
+    // Always compute both-side scores from pillars (needed for near miss detection)
+    const maxPillarScore = Object.values(pillars).reduce((sum, p) => sum + p.max, 0) // 60
+    const longTotalFromPillars = Object.values(pillars).reduce((sum, p) => sum + p.longScore, 0)
+    const shortTotalFromPillars = Object.values(pillars).reduce((sum, p) => sum + p.shortScore, 0)
+    const longScorePercent = (longTotalFromPillars / maxPillarScore) * 100
+    const shortScorePercent = (shortTotalFromPillars / maxPillarScore) * 100
+    const longPassingCount = Object.values(pillars).filter(p => p.longScore >= 5).length
+    const shortPassingCount = Object.values(pillars).filter(p => p.shortScore >= 5).length
+
+    let longScore = directionResult.longScore || longScorePercent
+    let shortScore = directionResult.shortScore || shortScorePercent
+    let longPassingFromDir = directionResult.longPassing ?? longPassingCount
+    let shortPassingFromDir = directionResult.shortPassing ?? shortPassingCount
 
     // Set backward-compatible .score on each pillar (UI reads p.score)
     for (const [key, pillar] of Object.entries(pillars)) {
@@ -737,6 +1221,7 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
     // S/R GUARDRAILS + AIR POCKET GATE (Stage 2)
     // Now regime-aware: shorts can break THROUGH support (not just bounce off it)
     // =====================================================
+    const directionBeforeSR = direction  // Track for near miss detection
     const riskAmount = indicators.atrRaw
     const airPocketBuffer = riskAmount * 0.15  // 0.15R buffer per expert advice
 
@@ -890,6 +1375,11 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
       }
     }
 
+    // S/R demotion flag for near miss detection
+    // A stock that had direction but got demoted to WATCH by S/R is a Stage 2 near miss candidate
+    const srDemotion = directionBeforeSR !== direction && direction === 'WATCH'
+    const originalDirection = directionBeforeSR
+
     // Calculate ATR-based trade management (entry, stop, dynamic targets, £/point)
     // regimeSizeMultiplier = 1.0 here; POST handler adjusts £/pt per regime state
     // For BOTH: trade management uses the stronger side's score; Stage 3 will resolve
@@ -926,11 +1416,14 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
         : indicators.momentum5d?.toFixed(2) + '%',
       direction,
       score,
-      // For BOTH: include both side scores so Stage 3 can pick the regime-aligned side
-      longScore: longScore || (direction === 'LONG' ? score : null),
-      shortScore: shortScore || (direction === 'SHORT' ? score : null),
+      // Always include both-side scores for near miss detection + Stage 3 regime resolution
+      longScore,
+      shortScore,
       longPassing: longPassingFromDir,
       shortPassing: shortPassingFromDir,
+      // S/R demotion tracking for near miss detection
+      srDemotion,
+      originalDirection,
       setupTier: tradeManagement?.setupTier || null,
       pillars,
       indicators: {
@@ -938,10 +1431,13 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
         momentum5d: indicators.momentum5d,
         momentum20d: indicators.momentum20d,
         momentum63d: indicators.momentum63d,
+        priceVsMa20: indicators.priceVsMa20,
         priceVsMa50: indicators.priceVsMa50,
         priceVsMa200: indicators.priceVsMa200,
         ma50VsMa200: indicators.ma50VsMa200,
         volumeRatio: indicators.volumeRatio,
+        avgVolume20: indicators.avgVolume20,
+        rsSlope20: indicators.rsSlope20,
         atr: indicators.atr,
         distanceFrom52High: indicators.distanceFrom52High,
         distanceFrom52Low: indicators.distanceFrom52Low,
@@ -1620,6 +2116,72 @@ async function fetchSectorMomentum(ticker) {
   } catch {
     return null
   }
+}
+
+// =====================================================
+// BENCHMARK DATA FETCH (for RS Slope computation)
+// Fetches 90d daily closes for SPY / ^FTSE
+// =====================================================
+const benchmarkCache = {}
+
+async function fetchBenchmarkCloses(symbol) {
+  if (benchmarkCache[symbol] && (Date.now() - benchmarkCache[symbol].timestamp < 3600000)) {
+    return benchmarkCache[symbol].closes
+  }
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=90d`
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    })
+    if (!response.ok) {
+      console.log(`[RS] Failed to fetch benchmark ${symbol}: ${response.status}`)
+      return null
+    }
+    const data = await response.json()
+    const closes = data.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []
+    const validCloses = closes.filter(c => c !== null)
+    if (validCloses.length < 25) {
+      console.log(`[RS] Insufficient benchmark data for ${symbol}: ${validCloses.length} bars`)
+      return null
+    }
+    console.log(`[RS] Fetched ${validCloses.length} benchmark bars for ${symbol}`)
+    benchmarkCache[symbol] = { closes: validCloses, timestamp: Date.now() }
+    return validCloses
+  } catch (err) {
+    console.log(`[RS] Error fetching benchmark ${symbol}: ${err.message}`)
+    return null
+  }
+}
+
+// =====================================================
+// RS SLOPE COMPUTATION
+// Computes log relative strength slope via OLS regression
+// slope > 0 = outperforming benchmark, < 0 = underperforming
+// =====================================================
+function computeRsSlope(stockCloses, benchmarkCloses, lookback = 20) {
+  // Align arrays from the end (both sourced from same Yahoo daily bars)
+  const n = Math.min(stockCloses.length, benchmarkCloses.length)
+  if (n < lookback + 1) return null
+
+  // Build log RS series over last `lookback` bars
+  const rsLog = []
+  for (let i = n - lookback; i < n; i++) {
+    if (benchmarkCloses[i] <= 0 || stockCloses[i] <= 0) return null
+    rsLog.push(Math.log(stockCloses[i] / benchmarkCloses[i]))
+  }
+
+  // OLS slope: slope = (m*Σxy - Σx*Σy) / (m*Σx² - (Σx)²)
+  const m = rsLog.length
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0
+  for (let i = 0; i < m; i++) {
+    sumX += i
+    sumY += rsLog[i]
+    sumXY += i * rsLog[i]
+    sumX2 += i * i
+  }
+  const denom = m * sumX2 - sumX * sumX
+  if (denom === 0) return 0
+  return (m * sumXY - sumX * sumY) / denom
 }
 
 function average(arr) {

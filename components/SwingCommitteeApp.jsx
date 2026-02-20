@@ -72,9 +72,15 @@ function buildSystemSummary(scanResults, marketContextData) {
     }
   }
 
-  // ── Closest candidates (from watchlist) ──
+  // ── Closest candidates (from near misses or watchlist) ──
+  const nearMisses = scanResults.nearMisses || {}
+  const allNearMisses = [...(nearMisses.long || []), ...(nearMisses.short || [])]
   let closestCandidates = ''
-  if (totalTrades === 0 && watchlist.length > 0) {
+  if (totalTrades === 0 && allNearMisses.length > 0) {
+    const top3 = allNearMisses.slice(0, 3)
+    const labels = top3.map(nm => `${nm.ticker} (${nm.badges?.[0] || nm.failureType})`).join(', ')
+    closestCandidates = `${allNearMisses.length} near miss${allNearMisses.length !== 1 ? 'es' : ''} detected: ${labels}.`
+  } else if (totalTrades === 0 && watchlist.length > 0) {
     const top3 = watchlist.slice(0, 3)
     const labels = top3.map(w => `${w.ticker} ${w.score?.toFixed(0)}%`).join(', ')
     closestCandidates = `Closest to threshold: ${labels}.`
@@ -1600,6 +1606,9 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                                       {stock.setupTier}
                                     </span>
                                   )}
+                                  {stock.relativeStrength?.classification?.includes('LEADER') && (
+                                    <span className="text-[10px] bg-green-100 text-green-700 px-1 rounded font-medium" title={`RS ${stock.relativeStrength.rsPct?.toFixed(0)}th pctile (+${stock.relativeStrength.longBonus})`}>RS</span>
+                                  )}
                                 </div>
                                 {stock.tradeManagement && (
                                   <span className="text-sm font-bold text-green-600">R:R {stock.tradeManagement.riskRewardRatio}:1</span>
@@ -1738,6 +1747,9 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                                         {stock.setupTier}
                                       </span>
                                     )}
+                                    {stock.relativeStrength?.classification?.includes('LAGGARD') && (
+                                      <span className="text-[10px] bg-red-100 text-red-700 px-1 rounded font-medium" title={`RS ${stock.relativeStrength.rsPct?.toFixed(0)}th pctile (+${stock.relativeStrength.shortBonus})`}>RS</span>
+                                    )}
                                   </div>
                                   {stock.tradeManagement && (
                                     <span className="text-sm font-bold text-red-600">R:R {stock.tradeManagement.riskRewardRatio}:1</span>
@@ -1839,6 +1851,121 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                       )
                     )}
 
+                    {/* Near Misses - stocks that failed by exactly one narrow margin */}
+                    {scanResults.nearMisses && (scanResults.nearMisses.long?.length > 0 || scanResults.nearMisses.short?.length > 0) && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-medium text-orange-800 flex items-center gap-2">
+                            <Target className="w-4 h-4" />
+                            Near Misses ({(scanResults.nearMisses.long?.length || 0) + (scanResults.nearMisses.short?.length || 0)})
+                            <span className="text-xs font-normal text-gray-500">— almost qualified</span>
+                          </h4>
+                          <button
+                            onClick={() => addScanResultsToWatchlist([...(scanResults.nearMisses.long || []), ...(scanResults.nearMisses.short || [])], 'Near Miss')}
+                            className="text-xs bg-orange-600 text-white px-2 py-1 rounded hover:bg-orange-700"
+                          >
+                            Track These
+                          </button>
+                        </div>
+
+                        {/* Long Near Misses */}
+                        {scanResults.nearMisses.long?.length > 0 && (
+                          <div className="mb-2">
+                            <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                              <ArrowUpRight className="w-3 h-3 text-green-600" />
+                              Long Near Misses
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {scanResults.nearMisses.long.map((nm) => (
+                                <span
+                                  key={`${nm.ticker}_L`}
+                                  className="bg-white border border-orange-200 rounded px-2 py-1 text-sm flex items-center gap-1"
+                                  title={nm.explain}
+                                >
+                                  <span className="font-medium">{nm.ticker}</span>
+                                  {nm.failureType === 'A' && (
+                                    <>
+                                      <span className="text-orange-600">{nm.actual.scorePct}%</span>
+                                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1 rounded font-medium">SCORE</span>
+                                    </>
+                                  )}
+                                  {nm.failureType === 'B' && (
+                                    <>
+                                      <span className="text-orange-600">{nm.actual.pillarsPassed}/{nm.required.pillarsMin}P</span>
+                                      <span className="text-[10px] bg-purple-100 text-purple-700 px-1 rounded font-medium">PILLAR</span>
+                                    </>
+                                  )}
+                                  {nm.failureType === 'C' && (
+                                    <>
+                                      <span className="text-orange-600">S/R</span>
+                                      <span className="text-[10px] bg-amber-100 text-amber-700 px-1 rounded font-medium">S/R</span>
+                                    </>
+                                  )}
+                                  {nm.failureType === 'D' && (
+                                    <>
+                                      <span className="text-orange-600">{nm.actual.scorePct}%</span>
+                                      <span className="text-[10px] bg-red-100 text-red-700 px-1 rounded font-medium">REGIME</span>
+                                    </>
+                                  )}
+                                  {nm.relativeStrength?.classification?.includes('LEADER') && (
+                                    <span className="text-[10px] bg-green-100 text-green-700 px-1 rounded font-medium" title={`RS ${nm.relativeStrength.rsPct?.toFixed(0)}th pctile`}>RS</span>
+                                  )}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Short Near Misses */}
+                        {scanResults.nearMisses.short?.length > 0 && (
+                          <div>
+                            <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                              <ArrowDownRight className="w-3 h-3 text-red-600" />
+                              Short Near Misses
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {scanResults.nearMisses.short.map((nm) => (
+                                <span
+                                  key={`${nm.ticker}_S`}
+                                  className="bg-white border border-orange-200 rounded px-2 py-1 text-sm flex items-center gap-1"
+                                  title={nm.explain}
+                                >
+                                  <span className="font-medium">{nm.ticker}</span>
+                                  {nm.failureType === 'A' && (
+                                    <>
+                                      <span className="text-orange-600">{nm.actual.scorePct}%</span>
+                                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1 rounded font-medium">SCORE</span>
+                                    </>
+                                  )}
+                                  {nm.failureType === 'B' && (
+                                    <>
+                                      <span className="text-orange-600">{nm.actual.pillarsPassed}/{nm.required.pillarsMin}P</span>
+                                      <span className="text-[10px] bg-purple-100 text-purple-700 px-1 rounded font-medium">PILLAR</span>
+                                    </>
+                                  )}
+                                  {nm.failureType === 'C' && (
+                                    <>
+                                      <span className="text-orange-600">S/R</span>
+                                      <span className="text-[10px] bg-amber-100 text-amber-700 px-1 rounded font-medium">S/R</span>
+                                    </>
+                                  )}
+                                  {nm.failureType === 'D' && (
+                                    <>
+                                      <span className="text-orange-600">{nm.actual.scorePct}%</span>
+                                      <span className="text-[10px] bg-red-100 text-red-700 px-1 rounded font-medium">REGIME</span>
+                                    </>
+                                  )}
+                                  {nm.relativeStrength?.classification?.includes('LAGGARD') && (
+                                    <span className="text-[10px] bg-red-100 text-red-700 px-1 rounded font-medium" title={`RS ${nm.relativeStrength.rsPct?.toFixed(0)}th pctile`}>RS</span>
+                                  )}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Watchlist Candidates */}
                     {scanResults.results.watchlist.length > 0 && (
                       <div>
@@ -1863,12 +1990,18 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                                 stock.earningsWarning ? 'border-blue-300' :
                                 stock.volatilityWarning ? 'border-red-300' : 'border-amber-200'
                               }`}
-                              title={stock.earningsWarning || stock.volatilityWarning || stock.reasoning}
+                              title={`${stock.earningsWarning || stock.volatilityWarning || stock.reasoning || ''}${stock.relativeStrength?.classification !== 'RS_NEUTRAL' && stock.relativeStrength ? ` | RS: ${stock.relativeStrength.classification?.replace('RS_', '')} (${stock.relativeStrength.rsPct?.toFixed(0)}th pctile)` : ''}`}
                             >
                               {stock.earningsWarning && <span className="text-blue-500 mr-1">📅</span>}
                               {stock.volatilityWarning && !stock.earningsWarning && <span className="text-red-500 mr-1">⚠️</span>}
                               <span className="font-medium">{stock.ticker}</span>
                               <span className="text-amber-600 ml-1">{stock.score?.toFixed(0)}%</span>
+                              {stock.relativeStrength?.classification?.includes('LEADER') && (
+                                <span className="text-[10px] bg-green-100 text-green-700 px-1 rounded font-medium ml-1">RS</span>
+                              )}
+                              {stock.relativeStrength?.classification?.includes('LAGGARD') && (
+                                <span className="text-[10px] bg-red-100 text-red-700 px-1 rounded font-medium ml-1">RS</span>
+                              )}
                             </span>
                           ))}
                         </div>
