@@ -1,5 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 
+// Allow up to 120s on Vercel Pro (default is 10s on Hobby)
+export const maxDuration = 120
+
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
@@ -42,7 +45,7 @@ function buildFullPrompt(formData, marketPulse, livePrices = {}, scannerResults 
   // Auto-populate watchlist from scanner developing stocks if user didn't provide one
   const scannerWatchlist = scannerResults?.results?.watchlist || []
   const autoWatchlistTickers = !hasUserWatchlist && scannerWatchlist.length > 0
-    ? scannerWatchlist.slice(0, 10).map(s => s.ticker).join('\n')
+    ? scannerWatchlist.slice(0, 5).map(s => s.ticker).join('\n')
     : ''
   const hasWatchlist = hasUserWatchlist || autoWatchlistTickers.length > 0
   const watchlistText = hasUserWatchlist ? formData.watchlist : autoWatchlistTickers
@@ -898,8 +901,22 @@ For each open position, provide:
 
 ${buildScannerGateSection(scannerResults)}
 
-${hasWatchlist ? `# WATCHLIST TO ANALYZE
-${watchlistSource === 'scanner' ? `\n**Note:** No user watchlist provided. These are the top developing stocks from the scanner — they did NOT pass the regime gate but are closest to becoming tradeable. Analyze what needs to improve for each.\n` : ''}
+${hasWatchlist ? (watchlistSource === 'scanner' ? `# DEVELOPING STOCKS (auto-populated from scanner)
+
+These are the top developing stocks from the scanner — they did NOT pass the regime gate but are closest to becoming tradeable. Keep analysis BRIEF for each.
+
+${watchlistText}
+
+For each ticker, provide a SHORT summary (3-5 lines max):
+1. Current score and what pillar(s) are missing
+2. What needs to improve to become tradeable (e.g. "needs RSI to cool" or "waiting for volume confirmation")
+3. Key level to watch (entry trigger)
+4. Verdict: WATCH / ALMOST READY / NOT YET
+
+Do NOT run the full 9-step protocol — these are developing setups, not trade candidates.
+
+---` : `# WATCHLIST TO ANALYZE
+
 ${watchlistText}
 
 ${livePricesSection}
@@ -914,7 +931,7 @@ For each watchlist ticker, run the FULL SWING SIGNAL PROTOCOL as defined in Sect
 8. Trade Management Plan
 9. Final Verdict
 
----` : '# WATCHLIST\n\nNo watchlist provided.\n\n---'}
+---`) : '# WATCHLIST\n\nNo watchlist provided.\n\n---'}
 
 # REQUIRED OUTPUT STRUCTURE
 
