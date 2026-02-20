@@ -294,24 +294,7 @@ export default function SwingCommitteeApp() {
     return { label: 'Very Bullish', color: 'text-green-600', bg: 'bg-green-50' };
   };
 
-  const analysisSteps = [
-    'Loading account parameters...',
-    'Scanning market regime...',
-    'Checking UK market breadth...',
-    'Checking US market breadth...',
-    'Reviewing open positions...',
-    'Applying Livermore pivotal points...',
-    'Running O\'Neil CANSLIM screen...',
-    'Checking Minervini trend template...',
-    'Identifying Darvas boxes...',
-    'Raschke momentum analysis...',
-    'Sector RS check...',
-    'Scoring setups against 6 pillars...',
-    'Building committee positions...',
-    'Calculating position sizes...',
-    'Generating trade signals...',
-  ];
-
+  const [analysisSteps, setAnalysisSteps] = useState([]);
   const [currentAnalysisStep, setCurrentAnalysisStep] = useState(0);
 
   // Extract tickers from watchlist text
@@ -534,14 +517,69 @@ export default function SwingCommitteeApp() {
   };
 
   const runAnalysis = async () => {
+    // Build dynamic steps based on what we're analyzing
+    const baseSteps = [
+      'Loading account parameters...',
+      'Scanning market regime...',
+      'Checking UK market breadth...',
+      'Checking US market breadth...',
+    ];
+
+    // Add open positions review if present
+    const hasPositions = formData.openPositions && formData.openPositions.trim().length > 0;
+    if (hasPositions) baseSteps.push('Reviewing open positions...');
+
+    baseSteps.push(
+      'Applying Livermore pivotal points...',
+      'Running O\'Neil CANSLIM screen...',
+      'Checking Minervini trend template...',
+      'Identifying Darvas boxes...',
+      'Raschke momentum analysis...',
+      'Sector RS check...',
+      'Scoring setups against 6 pillars...',
+    );
+
+    // Add per-ticker review steps
+    const userWatchlist = formData.watchlist?.trim();
+    const scannerWatchlist = scanResults?.results?.watchlist || [];
+    let reviewTickers = [];
+
+    if (userWatchlist) {
+      // Extract tickers from user text
+      reviewTickers = userWatchlist.split('\n')
+        .filter(line => line.trim() && !line.trim().startsWith('#'))
+        .map(line => line.split(',')[0].trim().toUpperCase())
+        .filter(Boolean);
+    } else if (scannerWatchlist.length > 0) {
+      // Auto-populated from scanner developing stocks
+      reviewTickers = scannerWatchlist.slice(0, 5).map(s => s.ticker);
+    }
+
+    // Add scanner-approved trades too
+    const approvedLongs = scanResults?.results?.long || [];
+    const approvedShorts = scanResults?.results?.short || [];
+    const approvedTickers = [...approvedLongs, ...approvedShorts].map(s => s.ticker);
+    const allReviewTickers = [...approvedTickers, ...reviewTickers];
+
+    if (allReviewTickers.length > 0) {
+      baseSteps.push('Generating trade signals...');
+      allReviewTickers.forEach(t => baseSteps.push(`Reviewing ${t}...`));
+    }
+
+    baseSteps.push('Building committee positions...');
+    baseSteps.push('Calculating position sizes...');
+    baseSteps.push('Finalising report...');
+
+    setAnalysisSteps(baseSteps);
     setIsAnalyzing(true);
     setCurrentAnalysisStep(0);
     setAnalysisError(null);
 
     // Animate through steps while waiting for API
+    const totalSteps = baseSteps.length;
     const interval = setInterval(() => {
       setCurrentAnalysisStep(prev => {
-        if (prev >= analysisSteps.length - 1) return prev;
+        if (prev >= totalSteps - 1) return prev;
         return prev + 1;
       });
     }, 800);
@@ -569,7 +607,7 @@ export default function SwingCommitteeApp() {
 
       const result = await response.json();
       setAnalysisResult(result);
-      setCurrentAnalysisStep(analysisSteps.length - 1);
+      setCurrentAnalysisStep(totalSteps - 1);
 
       // Save trade signals to Google Sheets (fire and forget)
       fetch('/api/sheets', {
