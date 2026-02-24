@@ -2360,24 +2360,10 @@ Format: Ticker, Notes (we'll fetch live prices)"
               </div>
               <h2 className="text-2xl font-bold text-gray-900">The Trading Program in Session</h2>
 
-              <div className="max-w-md mx-auto text-left bg-gray-50 rounded-xl p-4">
-                <div className="space-y-2">
-                  {analysisSteps.map((stepText, i) => (
-                    <div key={i} className={`flex items-center gap-3 text-sm transition-all duration-300 ${
-                      i < currentAnalysisStep ? 'text-green-600' :
-                      i === currentAnalysisStep ? 'text-blue-600 font-medium' :
-                      'text-gray-300'
-                    }`}>
-                      {i < currentAnalysisStep ? (
-                        <Check className="w-4 h-4 flex-shrink-0" />
-                      ) : i === currentAnalysisStep ? (
-                        <Loader2 className="w-4 h-4 flex-shrink-0 animate-spin" />
-                      ) : (
-                        <div className="w-4 h-4 flex-shrink-0" />
-                      )}
-                      <span>{stepText}</span>
-                    </div>
-                  ))}
+              <div className="max-w-md mx-auto text-center">
+                <div className="flex items-center justify-center gap-3 text-sm text-blue-600 font-medium">
+                  <Loader2 className="w-4 h-4 flex-shrink-0 animate-spin" />
+                  <span>Status: {analysisSteps[currentAnalysisStep] || 'Starting...'}</span>
                 </div>
               </div>
             </div>
