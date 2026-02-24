@@ -602,6 +602,31 @@ export default function SwingCommitteeApp() {
     }, 800);
 
     try {
+      // Strip scanner results to only what the analyze prompt needs (regime gate + minimal per-ticker data)
+      // Full scanResults can be 100-200KB; this reduces it to ~2-5KB
+      const lightScannerResults = scanResults ? {
+        regimeGate: {
+          source: scanResults.regimeGate?.source,
+          regimeState: scanResults.regimeGate?.regimeState,
+          ukRegimeState: scanResults.regimeGate?.ukRegimeState,
+          usRegimeState: scanResults.regimeGate?.usRegimeState,
+        },
+        thresholds: scanResults.thresholds,
+        results: {
+          long: (scanResults.results?.long || []).map(s => ({
+            ticker: s.ticker, score: s.score, setupTier: s.setupTier,
+            tradeManagement: s.tradeManagement ? { riskRewardRatio: s.tradeManagement.riskRewardRatio } : null,
+          })),
+          short: (scanResults.results?.short || []).map(s => ({
+            ticker: s.ticker, score: s.score, setupTier: s.setupTier,
+            tradeManagement: s.tradeManagement ? { riskRewardRatio: s.tradeManagement.riskRewardRatio } : null,
+          })),
+          watchlist: (scanResults.results?.watchlist || []).map(s => ({
+            ticker: s.ticker, score: s.score, direction: s.direction,
+          })),
+        },
+      } : null;
+
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -611,15 +636,16 @@ export default function SwingCommitteeApp() {
             uk: { score: marketPulseData.uk.score, label: marketPulseData.uk.label, regime: marketPulseData.uk.regime },
             us: { score: marketPulseData.us.score, label: marketPulseData.us.label, regime: marketPulseData.us.regime }
           },
-          livePrices: watchlistPrices, // Pass live prices to the analysis
-          scannerResults: scanResults || null // Pass scanner data so AI respects quantitative gate
+          livePrices: watchlistPrices,
+          scannerResults: lightScannerResults
         })
       });
 
       clearInterval(interval);
 
       if (!response.ok) {
-        throw new Error('Analysis failed');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.details || errorData.error || 'Analysis failed');
       }
 
       const result = await response.json();
@@ -1859,18 +1885,21 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                     )}
 
                     {/* Near Misses - stocks that failed by exactly one narrow margin */}
-                    {scanResults.nearMisses && (scanResults.nearMisses.long?.length > 0 || scanResults.nearMisses.short?.length > 0) && (
+                    {scanResults.nearMisses && (scanResults.nearMisses.long?.length > 0 || scanResults.nearMisses.short?.length > 0) && (() => {
+                      const longNM = (scanResults.nearMisses.long || []).slice(0, 5);
+                      const shortNM = (scanResults.nearMisses.short || []).slice(0, 5);
+                      return (
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <h4 className="font-medium text-orange-800 flex items-center gap-2">
                             <Target className="w-4 h-4" />
-                            Near Misses ({(scanResults.nearMisses.long?.length || 0) + (scanResults.nearMisses.short?.length || 0)}):
+                            Near Misses ({longNM.length + shortNM.length}):
                             <span className="text-xs font-normal text-gray-500">
-                              {scanResults.nearMisses.long?.length || 0} Long / {scanResults.nearMisses.short?.length || 0} Short
+                              {longNM.length} Long / {shortNM.length} Short
                             </span>
                           </h4>
                           <button
-                            onClick={() => addScanResultsToWatchlist([...(scanResults.nearMisses.long || []), ...(scanResults.nearMisses.short || [])], 'Near Miss')}
+                            onClick={() => addScanResultsToWatchlist([...longNM, ...shortNM], 'Near Miss')}
                             className="text-xs bg-orange-600 text-white px-2 py-1 rounded hover:bg-orange-700"
                           >
                             Track These
@@ -1878,14 +1907,14 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                         </div>
 
                         {/* Long Near Misses */}
-                        {scanResults.nearMisses.long?.length > 0 && (
+                        {longNM.length > 0 && (
                           <div className="mb-2">
                             <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
                               <ArrowUpRight className="w-3 h-3 text-green-600" />
                               Long Near Misses
                             </div>
                             <div className="flex flex-wrap gap-2">
-                              {scanResults.nearMisses.long.map((nm) => (
+                              {longNM.map((nm) => (
                                 <span
                                   key={`${nm.ticker}_L`}
                                   className="bg-white border border-orange-200 rounded px-2 py-1 text-sm flex items-center gap-1"
@@ -1926,14 +1955,14 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                         )}
 
                         {/* Short Near Misses */}
-                        {scanResults.nearMisses.short?.length > 0 && (
+                        {shortNM.length > 0 && (
                           <div>
                             <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
                               <ArrowDownRight className="w-3 h-3 text-red-600" />
                               Short Near Misses
                             </div>
                             <div className="flex flex-wrap gap-2">
-                              {scanResults.nearMisses.short.map((nm) => (
+                              {shortNM.map((nm) => (
                                 <span
                                   key={`${nm.ticker}_S`}
                                   className="bg-white border border-orange-200 rounded px-2 py-1 text-sm flex items-center gap-1"
@@ -1973,7 +2002,8 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                           </div>
                         )}
                       </div>
-                    )}
+                      );
+                    })()}
 
                     {/* Watchlist Candidates */}
                     {scanResults.results.watchlist.length > 0 && (
@@ -1992,7 +2022,7 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                           </button>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          {scanResults.results.watchlist.slice(0, 10).map((stock) => (
+                          {scanResults.results.watchlist.map((stock) => (
                             <span
                               key={stock.ticker}
                               className={`bg-white border rounded px-2 py-1 text-sm ${

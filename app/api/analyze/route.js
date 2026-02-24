@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 
 // Allow up to 120s on Vercel Pro (default is 10s on Hobby)
-export const maxDuration = 120
+export const maxDuration = 300
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -17,7 +17,7 @@ export async function POST(request) {
     // Call Claude API with extended token limit for comprehensive analysis
     const message = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 16384,
+      max_tokens: 12288,
       messages: [
         {
           role: 'user',
@@ -88,20 +88,9 @@ These prices are from Yahoo Finance and are the ONLY source of truth:
 ${Object.values(livePrices).map(formatLivePrice).join('\n')}
 
 **STRICT RULES FOR ENTRY ZONES:**
-1. Entry zones MUST be within 1-3% of the CURRENT PRICE shown above
-2. If current price is $100, entry zone must be between $97-$103
-3. If current price is 1000p, entry zone must be between 970p-1030p
-4. DO NOT suggest entry zones more than 5% away - that trade has been MISSED
-5. For EACH ticker, state "Current price from Yahoo: $X.XX" before giving entry zone
-6. If a stock has already moved significantly, recommend WATCHLIST instead of forcing a bad entry
-
-**EXAMPLE - CORRECT:**
-- Current Yahoo price: $150.00
-- Entry Zone: $147.00 - $152.00 (within 2% of current)
-
-**EXAMPLE - WRONG (DO NOT DO THIS):**
-- Current Yahoo price: $150.00
-- Entry Zone: $120.00 - $125.00 (20% away - THIS IS WRONG!)
+1. Entry zones MUST be within 1-3% of the CURRENT PRICE above. More than 5% away = trade MISSED.
+2. For EACH ticker, state "Current price from Yahoo: $X.XX" before giving entry zone.
+3. If a stock has already moved significantly, recommend WATCHLIST instead of forcing a bad entry.
 
 `
   }
@@ -141,218 +130,55 @@ This Swing Committee operates on principles from the greatest traders.
 ---
 
 ## PILLAR 1: LIVERMORE — Pivotal Points & Timing
-
-> "There is a time for all things, but I didn't know it. And that is precisely what beats so many men in Wall Street... the market does not beat them. They beat themselves, because though they have brains they cannot sit tight."
-
-> "It never was my thinking that made the big money for me. It always was my sitting."
-
 > "Don't anticipate — react. Let the market tell you what to do."
 
-**Application:** For any trade signal, apply the Livermore Test:
-
-1. **Pivotal Point Identification:**
-   - Is this a natural reaction point? (breakout level, key support/resistance)
-   - Has the stock "proven itself" by breaking through resistance on volume?
-   - Is this the LINE OF LEAST RESISTANCE direction?
-
-2. **Timing Check:**
-   - Has the consolidation been long enough? (Livermore waited for the "right moment")
-   - Is the breakout decisive or tentative?
-   - Are we chasing or catching?
-
-3. **Pyramiding Rules (if adding to winners):**
-   - Only add when the trade is profitable
-   - Each addition should be smaller than the last
-   - Never average down
-
-**Livermore Red Flags:**
-- ❌ Buying before the breakout ("anticipating")
-- ❌ Position too large too early
-- ❌ Fighting the tape / general market direction
-- ❌ Trading out of boredom
-
-**Key Livermore Quotes:**
-- "The big money is made in the waiting."
-- "A stock is never too high to buy or too low to sell."
-- "Markets are never wrong; opinions often are."
+**Checklist:** Is this a natural pivotal point (breakout, key S/R)? Has stock proven itself on volume? Line of least resistance direction? Breakout decisive, not tentative?
+**Red Flags:** ❌ Buying before breakout | ❌ Fighting the tape | ❌ Trading out of boredom
 
 ---
 
 ## PILLAR 2: O'NEIL — CANSLIM & Leadership
+> "The whole secret is to lose the least amount possible when you're not right."
 
-> "What seems too high and risky to the majority generally goes higher, and what seems low and cheap generally goes lower."
-
-> "The whole secret to winning in the stock market is to lose the least amount possible when you're not right."
-
-**Application:** For any LONG trade, apply the O'Neil CANSLIM screen:
-
-| Letter | Factor | Swing Adaptation |
-|--------|--------|------------------|
-| **C** | Current quarterly earnings | EPS acceleration or beat? |
-| **A** | Annual earnings growth | 3-year trend positive? |
-| **N** | New product/management/high | Is there a catalyst? Breaking to new highs? |
-| **S** | Supply & demand | Tight float? Volume on breakout? |
-| **L** | Leader or laggard? | RS Rating 80+? Sector leader? |
-| **I** | Institutional sponsorship | Smart money accumulating? |
-| **M** | Market direction | Is the general market in uptrend? |
-
-**O'Neil Position Rules:**
-- Cut losses at **7-8% maximum** — no exceptions
-- Take partial profits at **20-25%** gains
-- Only buy stocks making **new highs** (or within 15% of high)
-- **Relative Strength (RS) rating must be 70+**, ideally 85+
-- Volume on breakout should be **50%+ above average**
-
-**O'Neil Red Flags:**
-- ❌ RS rating below 70 (laggard)
-- ❌ Breaking out on low volume (no conviction)
-- ❌ General market in correction (M factor negative)
-- ❌ Buying extended stocks (more than 5% past buy point)
+**CANSLIM:** C=EPS acceleration, A=Annual growth, N=New catalyst/highs, S=Volume on breakout, L=RS 80+/Sector leader, I=Institutional buying, M=Market uptrend
+**Rules:** Cut losses 7-8% max. Partial profits at 20-25%. RS rating 70+. Breakout volume 50%+ above avg.
+**Red Flags:** ❌ RS < 70 | ❌ Low volume breakout | ❌ Market in correction | ❌ Extended > 5% past buy point
 
 ---
 
 ## PILLAR 3: MINERVINI — SEPA & Volatility Contraction
-
 > "The goal is not to buy at the lowest price; the goal is to buy at the right price."
 
-> "Volatility contraction is one of the most reliable precursors to a significant price move."
-
-**Application:** Apply the SEPA (Specific Entry Point Analysis) framework:
-
-**Stage Analysis (mandatory):**
-| Stage | Description | Action |
-|-------|-------------|--------|
-| **Stage 1** | Basing/Accumulation | Watch, don't buy |
-| **Stage 2** | Advancing/Markup | **BUY ZONE** ✓ |
-| **Stage 3** | Topping/Distribution | Take profits, don't initiate |
-| **Stage 4** | Declining/Markdown | Avoid or short |
-
-**Minervini Trend Template (must pass 7/8):**
-1. Stock price above 150-day MA
-2. 150-day MA above 200-day MA
-3. 200-day MA trending up for at least 1 month
-4. 50-day MA above 150-day and 200-day MA
-5. Stock price above 50-day MA
-6. Stock price at least 25% above 52-week low
-7. Stock price within 25% of 52-week high
-8. Relative Strength rating 70+ (ideally 90+)
-
-**Volatility Contraction Pattern (VCP):**
-- Look for successive tightening of price ranges
-- Each pullback should be shallower than the last
-- Volume should contract during consolidation
-- Volume should EXPAND on breakout
-- Buy point: breakout from the final contraction
-
-**Minervini Red Flags:**
-- ❌ Stage 3 or 4 stock (distribution or decline)
-- ❌ Wide, loose price action (no VCP)
-- ❌ Below key moving averages
-- ❌ Relative weakness vs market
+**Stage Analysis:** Stage 1=Watch | Stage 2=**BUY ZONE** | Stage 3=Take profits | Stage 4=Avoid/short
+**Trend Template (7/8):** Price > 150d MA, 150d > 200d, 200d trending up 1mo+, 50d > 150d & 200d, Price > 50d, 25%+ above 52w low, within 25% of 52w high, RS 70+
+**VCP:** Successive tightening ranges, shallower pullbacks, volume contracts then EXPANDS on breakout
+**Red Flags:** ❌ Stage 3/4 | ❌ Loose price action | ❌ Below key MAs | ❌ Relative weakness
 
 ---
 
 ## PILLAR 4: DARVAS — Box Theory & Mechanical Discipline
-
 > "I kept on buying higher and selling higher. It was like climbing a staircase."
 
-> "I never bought a stock at the low or sold one at the high in my life. I am satisfied to be along for most of the ride."
-
-**Application:** Apply the Darvas Box Method:
-
-**Box Identification:**
-1. Identify the recent trading range (the "box")
-2. Upper boundary = recent high
-3. Lower boundary = support level
-4. Stock "dances" within the box during consolidation
-
-**Entry Rules:**
-- Buy ONLY when price breaks ABOVE the box top
-- Breakout must be accompanied by increased volume
-- Enter as close to the breakout point as possible
-
-**Stop Loss Rules (MECHANICAL — NO DISCRETION):**
-- Initial stop: just below the bottom of the box
-- As price rises, raise stop to bottom of each new box
-- NEVER move stop down
-- NEVER override the stop
-
-**Exit Rules:**
-- Sell when stop is hit (no second-guessing)
-- Or sell when stock fails to form a new higher box
-- Or sell partial on climactic volume spike
-
-**Darvas Red Flags:**
-- ❌ Buying within the box (anticipating breakout)
-- ❌ No clear box structure (choppy, undefined)
-- ❌ Low volume breakout (false breakout risk)
-- ❌ Overriding mechanical stops
+**Method:** Identify box (trading range). Buy ONLY on break above box top with volume. Stop below box bottom. Trail stop to each new box bottom. NEVER move stop down or override.
+**Red Flags:** ❌ Buying within box | ❌ No clear box structure | ❌ Low volume breakout | ❌ Overriding stops
 
 ---
 
 ## PILLAR 5: RASCHKE — Mean Reversion & Momentum
-
 > "The market is a rubber band — it can only stretch so far before it snaps back."
 
-> "Momentum precedes price."
-
-**Application:** Raschke combines mean reversion AND momentum strategies:
-
-**Mean Reversion Setups (counter-trend):**
-- Look for overextended moves (2+ ATR from moving average)
-- Wait for exhaustion signal (reversal candle, divergence)
-- Enter counter-trend with tight stop
-- Target: return to mean (moving average)
-- **Best in:** choppy/ranging markets
-
-**Momentum Setups (trend-following):**
-- Look for strong directional thrust (breakaway move)
-- Buy the first pullback to support (flag/pennant)
-- Enter in direction of thrust
-- Target: measured move or new highs
-- **Best in:** trending markets
-
-**Raschke's Market Mode Check:**
-| Mode | Characteristics | Strategy |
-|------|-----------------|----------|
-| **Trending** | Higher highs/lows, MA stacked | Momentum / buy pullbacks |
-| **Choppy** | Overlapping bars, no direction | Mean reversion / fade extremes |
-| **Volatile** | Wide ranges, gaps | Reduce size, wider stops |
-
-**Key Raschke Indicators:**
-- ADX: >25 = trending, <20 = ranging
-- Bollinger Bands: width for volatility, touches for extremes
-- RSI: divergences for mean reversion
-- MACD: momentum confirmation
-
-**Raschke Red Flags:**
-- ❌ Fading a trend in a trending market
-- ❌ Trend-following in a choppy market
-- ❌ Ignoring the first thrust (most powerful)
-- ❌ Oversized position in volatile conditions
+**Mean Reversion:** 2+ ATR overextended → exhaustion signal → counter-trend entry → target return to MA. Best in choppy markets.
+**Momentum:** Strong thrust → first pullback to support → enter with trend → target new highs. Best in trending markets.
+**Market Mode:** Trending (ADX>25)=buy pullbacks | Choppy (ADX<20)=fade extremes | Volatile=reduce size, wider stops
+**Red Flags:** ❌ Fading trends | ❌ Trend-following in chop | ❌ Oversized in volatile conditions
 
 ---
 
 ## PILLAR 6: SECTOR RS — Relative Strength vs Sector
-
 > "Fish where the fish are. The strongest stocks are in the strongest sectors."
 
-**Application:** Sector RS measures whether a stock is OUTPERFORMING its sector peers over the last 20 days. This is critical for 1-3 day swing trades because sector rotation drives short-term flows.
-
-**Why Sector RS matters for spread bets:**
-- A stock up 5% when its sector is up 8% is actually WEAK (laggard)
-- A stock up 5% when its sector is up 1% is genuinely STRONG (leader)
-- Sector leaders get institutional flow; laggards get sold on rotation
-
-**Sector RS Checklist:**
-1. ✓ Stock 20d momentum > Sector ETF 20d momentum (outperforming)
-2. ✓ Stock 10d momentum positive while outperforming sector (short-term leader)
-3. ✓ Sector itself trending up (tailwind, not headwind)
-
-**Sector RS Red Flags:**
-- ❌ Stock underperforming its sector (relative weakness)
-- ❌ Sector in downtrend (no tailwind, swimming upstream)
-- ❌ Stock only rising because sector is rising (no alpha)
+**Checklist:** Stock 20d momentum > Sector ETF 20d momentum? Stock 10d positive while outperforming? Sector itself trending up?
+**Red Flags:** ❌ Underperforming sector | ❌ Sector in downtrend | ❌ No alpha vs sector
 
 ---
 
@@ -366,153 +192,32 @@ This Swing Committee operates on principles from the greatest traders.
 
 ## 2.1 POSITION SIZING
 
-### STANDARD MODE (Shares/CFDs)
+**Standard Mode:** Position Size = (Account × Risk %) / (Entry Price - Stop Price)
 
-**The 1-2% Rule:**
-\`\`\`
-Position Size = (Account × Risk %) / (Entry Price - Stop Price)
+**Spread Bet Mode (UK Tax-Free):** £ per Point = Risk Amount / Stop Distance in Points
+- 1 point = 1p (UK stocks) or 1c (US stocks). US stocks in points (NVDA 13800 = $138). UK in pence (LLOY 5250 = £52.50).
+- Tax-free gains (gambling classification). Losses not deductible. Margin typically 10-20% of notional.
+- **Always provide BOTH standard (shares) and spread bet (£/point) sizing for every trade.**
 
-Example:
-Account: £10,000
-Risk per trade: 1% = £100
-Entry: £50.00
-Stop: £47.00 (6% below)
-Risk per share: £3.00
-
-Position Size = £100 / £3.00 = 33 shares
-Position Value = 33 × £50 = £1,650 (16.5% of account)
-\`\`\`
-
-### SPREAD BET MODE (UK Tax-Free)
-
-**Key Concepts:**
-- Position sized in **£ per point** (not shares)
-- 1 point = 1 penny movement for UK stocks, 1 cent for US stocks
-- US stocks quoted in points (e.g., NVDA at 13800 = $138.00)
-- UK stocks quoted in pence (e.g., LLOY at 5250 = £52.50)
-- **Tax-free gains** (classified as gambling, not investment)
-- **Losses not tax-deductible**
-
-**Spread Bet Position Sizing:**
-\`\`\`
-£ per Point = Risk Amount / Stop Distance in Points
-
-Example (US Stock):
-Account: £10,000
-Risk per trade: 1% = £100
-Entry: 13800 points ($138.00)
-Stop: 13100 points ($131.00)
-Stop Distance: 700 points
-
-£ per Point = £100 / 700 = £0.14 per point
-Notional Exposure = 13800 × £0.14 = £1,932
-
-Example (UK Stock):
-Account: £10,000
-Risk per trade: 1% = £100
-Entry: 5250 points (£52.50)
-Stop: 5000 points (£50.00)
-Stop Distance: 250 points
-
-£ per Point = £100 / 250 = £0.40 per point
-Notional Exposure = 5250 × £0.40 = £2,100
-\`\`\`
-
-**Spread Bet Margin:**
-- Typical margin: 10-20% of notional exposure
-- £1,932 exposure @ 20% margin = £386 required
-- Allows more positions with same capital
-- **WARNING:** Leverage cuts both ways
-
-**UK Spread Bet Brokers:**
-- IG Index (largest, most liquid)
-- CMC Markets
-- Spreadex
-- City Index
-- eToro (limited)
-
-**Spread Bet Tax Notes (UK):**
-- Profits: **Tax-free** (no CGT)
-- Losses: **Not deductible** against other gains
-- HMRC may investigate if trading is primary income
-- Keep records anyway for your own tracking
-
-**Position Size Limits:**
-| Account Size | Max Position Size | Max Positions | Max Portfolio Heat |
-|--------------|-------------------|---------------|-------------------|
-| <£10k | 25% | 4-5 | 5% |
-| £10k-£50k | 20% | 5-6 | 6% |
-| £50k-£100k | 15% | 6-8 | 8% |
-| >£100k | 10% | 8-10 | 10% |
+**Position Size Limits:** <£10k: 25% max, 4-5 positions, 5% heat | £10k-50k: 20%, 5-6, 6% | £50k-100k: 15%, 6-8, 8% | >£100k: 10%, 8-10, 10%
 
 ---
 
 ## 2.2 STOP LOSS RULES
-
-**Hard Rules:**
-- Every trade MUST have a stop loss defined BEFORE entry
-- Stop loss must be at a logical technical level (not arbitrary %)
-- Maximum stop distance: 5-6% for short-term momentum swings
-- Once stop is set: NEVER move it down (can only trail UP)
-
-**Stop Placement by Setup:**
-| Setup Type | Stop Location |
-|------------|---------------|
-| Breakout | Below breakout level or last pivot low |
-| Pullback buy | Below the pullback low |
-| Mean reversion | Beyond the extreme + 1 ATR |
-| Box breakout | Below bottom of the Darvas box |
-| VCP | Below the last contraction low |
+- Every trade MUST have a stop defined BEFORE entry at a logical technical level
+- Max stop distance: 5-6% for short-term swings. NEVER move stop down.
+- Placement: Breakout=below breakout/pivot | Pullback=below pullback low | Mean reversion=extreme+1ATR | Box=below box bottom | VCP=below last contraction
 
 ---
 
 ## 2.3 PORTFOLIO HEAT
-
-**Portfolio Heat = Sum of all open position risks**
-
-\`\`\`
-Example:
-Position 1: £100 at risk
-Position 2: £100 at risk
-Position 3: £100 at risk
-Total Heat: £300 (3% of £10k account)
-\`\`\`
-
-**Heat Limits:**
-- Normal conditions: Max 6% portfolio heat
-- Volatile/uncertain conditions: Max 4% portfolio heat
-- Strong trending market: Can stretch to 8%
-
-**If heat limit reached: NO NEW TRADES until existing trades are in profit (and stops raised) or closed.**
+Portfolio Heat = Sum of all open position risks. Normal: max 6% | Volatile: max 4% | Trending: up to 8%. If limit reached: NO NEW TRADES.
 
 ---
 
-## 2.4 LEVERAGE RULES
-
-**If leverage permitted:**
-
-| Instrument | Max Leverage | Notes |
-|------------|--------------|-------|
-| CFDs/Spread Bets | 5:1 effective | Calculate position size on FULL notional value |
-| Margin (stocks) | 2:1 | Treat as 2% risk per trade, not 1% |
-| Forex | 10:1 max | Very tight stops required |
-
-**Leverage Warning:**
-Leverage does NOT change the % risk per trade rule. It only affects capital efficiency.
-A leveraged trade must still risk only 1-2% of TOTAL account value.
-
----
-
-## 2.5 SHORT SELLING RULES
-
-**If short selling permitted:**
-
-1. Only short stocks with weak sector relative strength
-2. Stop loss ABOVE resistance (reverse of long)
-3. Cover partial at 1:1 R:R (take some profit quickly)
-4. Watch for short squeeze setups (high short interest + good news)
-5. Never short a stock making new highs
-6. Reduced position size (shorts can gap against you harder)
+## 2.4 LEVERAGE & SHORT RULES
+- Leverage does NOT change % risk per trade rule. CFDs/Spread Bets max 5:1 effective.
+- Shorts: only weak sector RS, stop ABOVE resistance, cover partial at 1:1 R:R, never short new highs, reduced size.
 
 ---
 
@@ -792,50 +497,6 @@ For each open position, provide status update:
 - [✓] PARTIAL — Take XX% profit here
 - [✓] CLOSE — Exit position
 - [✓] ADD — Setup for pyramid entry at £XX.XX
-
----
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# SECTION 8 — WISDOM LIBRARY (VERIFIED QUOTES)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-For committee deliberation and reports:
-
-## LIVERMORE
-- "There is a time for all things — a time to buy, a time to sell, and a time to go fishing."
-- "It never was my thinking that made the big money for me. It always was my sitting."
-- "The big money is made in the waiting."
-- "The market does not beat them. They beat themselves."
-- "Don't anticipate — react."
-
-## O'NEIL
-- "What seems too high and risky to the majority generally goes higher."
-- "The whole secret to winning in the stock market is to lose the least amount possible when you're not right."
-- "90% of stocks will decline with the general market, regardless of how good they are."
-- "The successful investor learns to buy stocks as they emerge from sound bases."
-
-## MINERVINI
-- "The goal is not to buy at the lowest price; the goal is to buy at the right price."
-- "Volatility contraction is one of the most reliable precursors to a significant price move."
-- "Risk management isn't about avoiding risk — it's about defining it."
-- "Superperformance is built on consistency, not home runs."
-
-## DARVAS
-- "I kept on buying higher and selling higher."
-- "I never bought a stock at the low or sold one at the high in my life. I am satisfied to be along for most of the ride."
-- "I decided to make my method completely mechanical."
-- "The stop loss is not a sign of failure — it's a tool of survival."
-
-## RASCHKE
-- "The market is a rubber band — it can only stretch so far before it snaps back."
-- "Momentum precedes price."
-- "The first thrust in a new direction is usually the most powerful."
-- "Adapt to what the market is giving you, not what you want it to give you."
-
-## SECTOR RS
-- "Fish where the fish are. The strongest stocks are in the strongest sectors."
-- "Relative strength tells you who's leading and who's lagging."
-- "In a rotation market, sector selection is 80% of the trade."
 
 ---
 
