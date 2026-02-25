@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "signal-schema.json",
+  "title": "Trade Signal",
+  "description": "Unified signal object produced by convertJsonToSignals() in the Swing Committee analysis pipeline. Covers TAKE TRADE, WATCHLIST, and DAY TRADE verdict types.",
+  "type": "object",
+  "required": ["ticker", "name", "direction", "verdict", "setupType", "rawSection"],
+  "properties": {
+    "ticker": {
+      "type": "string",
+      "description": "Ticker symbol with .L suffix removed (e.g. 'NVDA', 'VOD', 'SHEL')"
+    },
+    "name": {
+      "type": "string",
+      "description": "Original ticker symbol as returned by AI, may include .L suffix (e.g. 'SHEL.L')"
+    },
+    "direction": {
+      "type": "string",
+      "enum": ["LONG", "SHORT", "WATCHLIST ONLY"],
+      "description": "Trade direction. WATCHLIST ONLY is used for watchlist-verdict signals."
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["TAKE TRADE", "WATCHLIST", "DAY TRADE"],
+      "description": "Signal classification. Determines how the signal is displayed in the UI and recorded in Google Sheets."
+    },
+    "entry": {
+      "type": ["string", "null"],
+      "description": "Entry price or zone. Single price for DAY TRADE, may be a range for TAKE TRADE (e.g. '$138.00-$140.00'), potential entry for WATCHLIST."
+    },
+    "stop": {
+      "type": ["string", "null"],
+      "description": "Stop loss price level."
+    },
+    "target": {
+      "type": ["string", "null"],
+      "description": "Target price level (T1 for swing trades, intraday target for day trades)."
+    },
+    "grade": {
+      "type": ["string", "null"],
+      "description": "Trade grade assigned by AI. Typically 'A+', 'A', or 'B'. Present for TAKE TRADE and optionally WATCHLIST. Always null for DAY TRADE.",
+      "enum": ["A+", "A", "B", "C", null]
+    },
+    "pillarCount": {
+      "type": ["integer", "null"],
+      "description": "Number of Six Pillars aligned (0-6). Present for TAKE TRADE and optionally WATCHLIST. Always null for DAY TRADE.",
+      "minimum": 0,
+      "maximum": 6
+    },
+    "setupType": {
+      "type": "string",
+      "description": "Human-readable setup description. For TAKE TRADE: setup name (e.g. 'VCP Breakout'). For WATCHLIST: first 50 chars of the watch note. For DAY TRADE: prefixed with 'Day Trade: ' (e.g. 'Day Trade: Bounce off daily pivot support')."
+    },
+    "riskReward": {
+      "type": ["string", "null"],
+      "description": "Risk:Reward ratio as string (e.g. '2.4:1'). Sourced from tradeAnalysis.riskReward1 for TAKE TRADE, from AI for DAY TRADE, always null for WATCHLIST."
+    },
+    "rawSection": {
+      "type": "string",
+      "description": "Full formatted markdown text with detailed analysis. Built by buildTradeAnalysisText (TAKE TRADE), buildWatchlistAnalysisText (WATCHLIST), or buildDayTradeAnalysisText (DAY TRADE)."
+    }
+  },
+  "oneOf": [
+    {
+      "title": "TAKE TRADE Signal",
+      "description": "Scanner-approved trade that passed the Six Pillars regime gate. Full swing trade with entry zone, stop, target, grade, and pillar alignment.",
+      "properties": {
+        "verdict": { "const": "TAKE TRADE" },
+        "direction": { "enum": ["LONG", "SHORT"] },
+        "grade": { "type": "string" },
+        "pillarCount": { "type": "integer" },
+        "riskReward": { "type": "string" }
+      },
+      "required": ["ticker", "name", "direction", "verdict", "entry", "stop", "target", "grade", "pillarCount", "setupType", "riskReward", "rawSection"]
+    },
+    {
+      "title": "WATCHLIST Signal",
+      "description": "Developing setup that did not pass the scanner threshold for swing trading. Includes potential levels if the setup improves.",
+      "properties": {
+        "verdict": { "const": "WATCHLIST" },
+        "direction": { "const": "WATCHLIST ONLY" },
+        "riskReward": { "type": "null" }
+      },
+      "required": ["ticker", "name", "direction", "verdict", "setupType", "rawSection"]
+    },
+    {
+      "title": "DAY TRADE Signal",
+      "description": "Intraday-only setup derived from daily S/R levels and ATR. Tighter stops (0.3-0.5 ATR), smaller targets (0.5-1.0 ATR). Must be closed by end of day.",
+      "properties": {
+        "verdict": { "const": "DAY TRADE" },
+        "direction": { "enum": ["LONG", "SHORT"] },
+        "grade": { "type": "null" },
+        "pillarCount": { "type": "null" }
+      },
+      "required": ["ticker", "name", "direction", "verdict", "entry", "stop", "target", "setupType", "riskReward", "rawSection"]
+    }
+  ]
+}
