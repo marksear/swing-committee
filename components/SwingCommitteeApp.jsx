@@ -653,10 +653,15 @@ export default function SwingCommitteeApp() {
       setCurrentAnalysisStep(totalSteps - 1);
 
       // Save trade signals to Google Sheets (fire and forget)
+      // Strip to only what appendTradeSignals needs — avoids sending fullAnalysis (20-50KB)
+      const sheetsPayload = {
+        signals: result.signals,
+        committeeStance: result.mode || '',
+      };
       fetch('/api/sheets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'saveTradeSignals', data: result })
+        body: JSON.stringify({ action: 'saveTradeSignals', data: sheetsPayload })
       }).catch(err => console.log('Sheets save skipped:', err.message));
 
       setTimeout(() => {
