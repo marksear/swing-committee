@@ -597,6 +597,34 @@ Do NOT run the full 9-step protocol — these are developing setups, not trade c
 
 ${!hasWatchlist ? '# WATCHLIST\n\nNo watchlist provided.\n\n---' : ''}
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# DAY TRADE EVALUATION — INTRADAY SETUPS FROM DAILY DATA
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+For EACH watchlist stock with S/R data in the Scanner Gate section, evaluate whether
+it has a viable same-day intraday trade setup. Day trades use tighter parameters.
+
+**DAY TRADE METHODOLOGY:**
+- Entry: At a specific S/R level (support for longs, resistance for shorts) — a SINGLE price
+- Stop: 0.3–0.5 ATR beyond entry (tighter than swing)
+- Target: 0.5–1.0 ATR from entry (small profit, high probability)
+- Must close by end of day — no overnight hold
+
+**VIABILITY CRITERIA (ALL must be true):**
+1. Clear S/R level within 1.0R of current price (reachable today)
+2. Sufficient liquidity: avgVolume20 > 500K (UK) or > 1M (US)
+3. Momentum 5d supports the direction (positive for longs, negative for shorts)
+4. RSI between 25–75 (not at extremes)
+5. Tight stop possible: stop distance ≤ 0.5 ATR
+
+**SPREAD BET SIZING:**
+£ per Point = (Account Risk Amount) / Stop Distance in Points
+(Use the same risk parameters as swing trades.)
+
+If a watchlist stock does NOT meet all criteria, do NOT include it in the dayTrades JSON array.
+
+---
+
 # REQUIRED OUTPUT STRUCTURE
 
 ## PART A — MARKET CONTEXT & COMMITTEE STANCE
@@ -783,6 +811,25 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
       }
     }
   ],
+  "dayTrades": [
+    {
+      "ticker": "VOD",
+      "direction": "LONG",
+      "entry": "72.50p",
+      "stop": "71.80p",
+      "target": "73.50p",
+      "riskReward": "1.4:1",
+      "setup": "Bounce off daily pivot support at 72.40",
+      "spreadBetSizing": {
+        "entryPoints": "7250",
+        "stopPoints": "7180",
+        "stopDistance": "70 points",
+        "poundsPerPoint": "£1.43",
+        "notionalExposure": "£10,358",
+        "marginRequired": "£2,072"
+      }
+    }
+  ],
   "positionReviews": [
     {
       "ticker": "CSCO",
@@ -812,6 +859,8 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
 \`\`\`
 
 Replace the example values with actual analysis. The JSON must be valid and parseable. Include ALL trades from the TRADES TABLE in the trades array. The tradeAnalysis object must contain the FULL detailed analysis for each trade.
+
+**dayTrades:** Include ALL viable intraday setups from the watchlist. Each must have entry (single price, not a zone), stop, target, riskReward, setup description, and spreadBetSizing. If none are viable, use an empty array [].
 
 **IMPORTANT FOR WATCHLIST ITEMS:** Each watchlist item MUST include ALL fields shown in the example above, including:
 - company, sector, setupType
@@ -882,13 +931,20 @@ function buildScannerGateSection(scannerResults) {
   }
 
   if (watchlist.length > 0) {
-    section += `## SCANNER WATCHLIST (these are WATCHLIST ONLY — not ready to trade)\n`
+    section += `## SCANNER WATCHLIST (WATCHLIST for swing — evaluate for DAY TRADE)\n`
     watchlist.forEach(s => {
-      section += `- ${s.ticker}: Score ${s.score?.toFixed(0)}%, Direction ${s.direction}\n`
+      section += `- ${s.ticker}: Score ${s.score?.toFixed(0)}%, Price ${s.price || '?'} (${s.currency || '?'})\n`
+      if (s.nearestSupport) {
+        section += `  Support: ${s.nearestSupport.level} (${s.nearestSupport.type}, ${s.nearestSupport.distanceR}R away)\n`
+      }
+      if (s.nearestResistance) {
+        section += `  Resistance: ${s.nearestResistance.level} (${s.nearestResistance.type}, ${s.nearestResistance.distanceR}R away)\n`
+      }
+      section += `  ATR: ${s.atr != null ? Number(s.atr).toFixed(2) : '?'}%, Vol Ratio: ${s.volumeRatio != null ? Number(s.volumeRatio).toFixed(2) : '?'}, RSI: ${s.rsi != null ? Number(s.rsi).toFixed(0) : '?'}, Mom5d: ${s.momentum5d != null ? Number(s.momentum5d).toFixed(2) : '?'}%\n`
     })
-    section += `\n**IMPORTANT:** These watchlist tickers did NOT pass the scanner threshold. `
-    section += `Your verdict for these MUST be WATCHLIST, not TAKE TRADE. `
-    section += `They are developing setups — explain what needs to improve for them to become tradeable.\n\n`
+    section += `\n**IMPORTANT:** These watchlist tickers did NOT pass the scanner threshold for swing trades. `
+    section += `Your swing verdict MUST be WATCHLIST, not TAKE TRADE.\n`
+    section += `**However**, evaluate each for a DAY TRADE setup using the S/R and ATR data above.\n\n`
   }
 
   section += `---\n`
@@ -985,7 +1041,54 @@ function convertJsonToSignals(jsonData) {
     }
   }
 
+  // Convert day trades to signals
+  if (jsonData.dayTrades && Array.isArray(jsonData.dayTrades)) {
+    for (const dt of jsonData.dayTrades) {
+      let rawSection = buildDayTradeAnalysisText(dt)
+
+      signals.push({
+        ticker: dt.ticker?.replace('.L', ''),
+        name: dt.ticker,
+        direction: dt.direction?.toUpperCase() || 'LONG',
+        verdict: 'DAY TRADE',
+        entry: dt.entry,
+        stop: dt.stop,
+        target: dt.target,
+        grade: null,
+        pillarCount: null,
+        setupType: `Day Trade: ${dt.setup || 'Intraday S/R'}`,
+        riskReward: dt.riskReward || null,
+        rawSection,
+      })
+    }
+  }
+
   return signals
+}
+
+// Build formatted day trade analysis text from JSON data
+function buildDayTradeAnalysisText(dt) {
+  const sb = dt.spreadBetSizing || {}
+
+  let text = `### DAY TRADE: ${dt.ticker}\n\n`
+  text += `**TYPE:** Intraday Only — CLOSE BY END OF DAY\n\n`
+  text += `**SETUP:** ${dt.setup || 'Intraday S/R level'}\n\n`
+
+  text += `**LEVELS:**\n`
+  text += `- Entry: ${dt.entry || 'N/A'}\n`
+  text += `- Stop: ${dt.stop || 'N/A'}\n`
+  text += `- Target: ${dt.target || 'N/A'}\n`
+  text += `- Risk:Reward: ${dt.riskReward || 'N/A'}\n\n`
+
+  if (sb.poundsPerPoint) {
+    text += `**SPREAD BET SIZING:**\n`
+    text += `- £ per Point: ${sb.poundsPerPoint}\n`
+    text += `- Stop Distance: ${sb.stopDistance || 'N/A'}\n`
+    text += `- Notional Exposure: ${sb.notionalExposure || 'N/A'}\n`
+    text += `- Margin Required: ${sb.marginRequired || 'N/A'}\n\n`
+  }
+
+  return text
 }
 
 // Build formatted trade analysis text from JSON data

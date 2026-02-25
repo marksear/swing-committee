@@ -623,6 +623,16 @@ export default function SwingCommitteeApp() {
           })),
           watchlist: (scanResults.results?.watchlist || []).map(s => ({
             ticker: s.ticker, score: s.score, direction: s.direction,
+            price: s.price, currency: s.currency,
+            // Day trade data — S/R, volatility, volume, momentum
+            atr: s.indicators?.atr,
+            nearestSupport: s.indicators?.nearestSupport,
+            nearestResistance: s.indicators?.nearestResistance,
+            volumeRatio: s.indicators?.volumeRatio,
+            avgVolume20: s.indicators?.avgVolume20,
+            rsi: s.indicators?.rsi,
+            momentum5d: s.indicators?.momentum5d,
+            priceVsMa20: s.indicators?.priceVsMa20,
           })),
         },
       } : null;
@@ -711,7 +721,13 @@ export default function SwingCommitteeApp() {
     return false;
   };
 
-  // Helper to get actual trade direction (LONG/SHORT) - only if it's a real trade
+  // Helper to check if signal is a DAY TRADE
+  const isDayTrade = (signal) => {
+    const verdict = (signal?.verdict || '').toUpperCase();
+    return verdict === 'DAY TRADE';
+  };
+
+  // Helper to get actual trade direction (LONG/SHORT) - only if it's a real trade or day trade
   const getTradeDirection = (signal) => {
     if (isNoTrade(signal) || isWatchlist(signal)) return null;
 
@@ -724,6 +740,8 @@ export default function SwingCommitteeApp() {
   const getSignalBoxColor = (signal) => {
     // NO TRADE = should not be shown (filtered out)
     if (isNoTrade(signal)) return 'bg-red-500';
+    // DAY TRADE = indigo
+    if (isDayTrade(signal)) return 'bg-indigo-600';
     // WATCHLIST = orange
     if (isWatchlist(signal)) return 'bg-orange-500';
     // TAKE TRADE with direction
@@ -737,6 +755,8 @@ export default function SwingCommitteeApp() {
   const getSignalBoxLabel = (signal) => {
     // NO TRADE = should not be shown
     if (isNoTrade(signal)) return '✕';
+    // DAY TRADE = D
+    if (isDayTrade(signal)) return 'D';
     // WATCHLIST = W
     if (isWatchlist(signal)) return 'W';
     // TAKE TRADE with direction
@@ -750,6 +770,7 @@ export default function SwingCommitteeApp() {
   const getVerdictColor = (verdict) => {
     if (!verdict) return 'bg-gray-100 text-gray-600';
     if (verdict === 'TAKE TRADE') return 'bg-green-100 text-green-700';
+    if (verdict === 'DAY TRADE') return 'bg-indigo-100 text-indigo-700';
     if (verdict === 'WATCHLIST') return 'bg-amber-100 text-amber-700';
     return 'bg-gray-100 text-gray-600';
   };
@@ -2633,6 +2654,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                                 <p className="text-sm text-gray-500">
                                   {signal.setupType || signal.name || 'Swing Setup'}
                                   {signal.grade && <span className="ml-2 font-medium">• Grade {signal.grade}</span>}
+                                  {isDayTrade(signal) && <span className="ml-2 text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">Intraday Only</span>}
                                 </p>
                               </div>
                               {signal.pillarCount && (
