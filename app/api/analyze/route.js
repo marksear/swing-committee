@@ -14,34 +14,53 @@ export async function POST(request) {
     // Build the full Swing Committee prompt
     const prompt = buildFullPrompt(formData, marketPulse, livePrices, scannerResults)
 
-    // Call Claude API with retry for transient errors (429 rate limit, 529 overloaded)
+    // Call Claude API with retry + model fallback for transient errors
+    // Try Sonnet first (faster/cheaper), fall back to Opus if Sonnet is overloaded
+    const models = [
+      { id: 'claude-sonnet-4-20250514', retries: 2 },
+      { id: 'claude-opus-4-20250514', retries: 2 },
+    ]
+
     let message
-    const maxRetries = 3
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        message = await client.messages.create({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 12288,
-          temperature: 0,
-          messages: [
-            {
-              role: 'user',
-              content: prompt
-            }
-          ]
-        })
-        break // Success — exit retry loop
-      } catch (apiError) {
-        const status = apiError?.status || apiError?.statusCode || 0
-        const isRetryable = status === 429 || status === 529 || status === 503
-        if (isRetryable && attempt < maxRetries) {
-          const delay = attempt * 5000 // 5s, 10s backoff
-          console.log(`[Analyze] Anthropic API ${status} on attempt ${attempt}/${maxRetries}, retrying in ${delay / 1000}s...`)
-          await new Promise(r => setTimeout(r, delay))
-        } else {
-          throw apiError // Non-retryable or final attempt — propagate
+    for (const model of models) {
+      let succeeded = false
+      for (let attempt = 1; attempt <= model.retries; attempt++) {
+        try {
+          console.log(`[Analyze] Calling ${model.id} (attempt ${attempt}/${model.retries})`)
+          message = await client.messages.create({
+            model: model.id,
+            max_tokens: 12288,
+            temperature: 0,
+            messages: [
+              {
+                role: 'user',
+                content: prompt
+              }
+            ]
+          })
+          console.log(`[Analyze] Success with ${model.id}`)
+          succeeded = true
+          break // Success — exit retry loop
+        } catch (apiError) {
+          const status = apiError?.status || apiError?.statusCode || 0
+          const isRetryable = status === 429 || status === 529 || status === 503
+          if (isRetryable && attempt < model.retries) {
+            const delay = attempt * 5000
+            console.log(`[Analyze] ${model.id} returned ${status} on attempt ${attempt}, retrying in ${delay / 1000}s...`)
+            await new Promise(r => setTimeout(r, delay))
+          } else if (isRetryable) {
+            console.log(`[Analyze] ${model.id} failed after ${model.retries} attempts (${status}), trying next model...`)
+            break // Try next model
+          } else {
+            throw apiError // Non-retryable error — propagate immediately
+          }
         }
       }
+      if (succeeded) break
+    }
+
+    if (!message) {
+      throw new Error('All models unavailable — Anthropic API is overloaded. Please try again in a few minutes.')
     }
 
     // Parse the response
