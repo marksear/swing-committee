@@ -14,18 +14,35 @@ export async function POST(request) {
     // Build the full Swing Committee prompt
     const prompt = buildFullPrompt(formData, marketPulse, livePrices, scannerResults)
 
-    // Call Claude API with extended token limit for comprehensive analysis
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 12288,
-      temperature: 0,
-      messages: [
-        {
-          role: 'user',
-          content: prompt
+    // Call Claude API with retry for transient errors (429 rate limit, 529 overloaded)
+    let message
+    const maxRetries = 3
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        message = await client.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 12288,
+          temperature: 0,
+          messages: [
+            {
+              role: 'user',
+              content: prompt
+            }
+          ]
+        })
+        break // Success — exit retry loop
+      } catch (apiError) {
+        const status = apiError?.status || apiError?.statusCode || 0
+        const isRetryable = status === 429 || status === 529 || status === 503
+        if (isRetryable && attempt < maxRetries) {
+          const delay = attempt * 5000 // 5s, 10s backoff
+          console.log(`[Analyze] Anthropic API ${status} on attempt ${attempt}/${maxRetries}, retrying in ${delay / 1000}s...`)
+          await new Promise(r => setTimeout(r, delay))
+        } else {
+          throw apiError // Non-retryable or final attempt — propagate
         }
-      ]
-    })
+      }
+    }
 
     // Parse the response
     const responseText = message.content[0].text
