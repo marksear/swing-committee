@@ -652,6 +652,7 @@ it has a viable same-day intraday trade setup. Day trades use tighter parameters
 3. Momentum 5d supports the direction (positive for longs, negative for shorts)
 4. RSI between 25–75 (not at extremes)
 5. Tight stop possible: stop distance ≤ 0.5 ATR
+6. No upcoming earnings: stock must NOT have an earnings warning (marked with ⚠️ EARNINGS above)
 
 **SPREAD BET SIZING:**
 £ per Point = (Account Risk Amount) / Stop Distance in Points
@@ -977,10 +978,16 @@ function buildScannerGateSection(scannerResults) {
         section += `  Resistance: ${s.nearestResistance.level} (${s.nearestResistance.type}, ${s.nearestResistance.distanceR}R away)\n`
       }
       section += `  ATR: ${s.atr != null ? Number(s.atr).toFixed(2) : '?'}%, Vol Ratio: ${s.volumeRatio != null ? Number(s.volumeRatio).toFixed(2) : '?'}, RSI: ${s.rsi != null ? Number(s.rsi).toFixed(0) : '?'}, Mom5d: ${s.momentum5d != null ? Number(s.momentum5d).toFixed(2) : '?'}%\n`
+      if (s.earningsDate) {
+        const d = s.daysUntilEarnings
+        const label = d > 0 ? `in ${d} day${d > 1 ? 's' : ''}` : d === 0 ? 'TODAY' : `${Math.abs(d)} day${Math.abs(d) > 1 ? 's' : ''} ago`
+        section += `  ⚠️ EARNINGS: ${s.earningsDate} (${label}) — DO NOT TRADE\n`
+      }
     })
     section += `\n**IMPORTANT:** These watchlist tickers did NOT pass the scanner threshold for swing trades. `
     section += `Your swing verdict MUST be WATCHLIST, not TAKE TRADE.\n`
-    section += `**However**, evaluate each for a DAY TRADE setup using the S/R and ATR data above.\n\n`
+    section += `**However**, evaluate each for a DAY TRADE setup using the S/R and ATR data above.\n`
+    section += `**EARNINGS EXCLUSION:** Do NOT suggest ANY trades (swing or day) for stocks with an earnings warning above.\n\n`
   }
 
   section += `---\n`

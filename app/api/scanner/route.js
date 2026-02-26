@@ -577,8 +577,8 @@ async function checkEarningsProximity(ticker) {
     const diffTime = earningsDate.getTime() - today.getTime()
     const daysUntilEarnings = Math.round(diffTime / (1000 * 60 * 60 * 24))
 
-    // Check if within ±2 days
-    const nearEarnings = daysUntilEarnings >= -2 && daysUntilEarnings <= 2
+    // Check if within 5 days before or 2 days after earnings
+    const nearEarnings = daysUntilEarnings >= -2 && daysUntilEarnings <= 5
 
     let earningsWarning = null
     if (nearEarnings) {
@@ -1196,7 +1196,7 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
         : null
     }
 
-    // Check earnings proximity (±2 days)
+    // Check earnings proximity (5 days before, 2 days after)
     let earningsData = { nearEarnings: false, earningsDate: null, daysUntilEarnings: null, earningsWarning: null }
     if (direction === 'LONG' || direction === 'SHORT' || direction === 'BOTH') {
       earningsData = await checkEarningsProximity(ticker)
