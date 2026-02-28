@@ -977,7 +977,7 @@ function buildScannerGateSection(scannerResults) {
       if (s.nearestResistance) {
         section += `  Resistance: ${s.nearestResistance.level} (${s.nearestResistance.type}, ${s.nearestResistance.distanceR}R away)\n`
       }
-      section += `  ATR: ${s.atr != null ? Number(s.atr).toFixed(2) : '?'}%, Vol Ratio: ${s.volumeRatio != null ? Number(s.volumeRatio).toFixed(2) : '?'}, RSI: ${s.rsi != null ? Number(s.rsi).toFixed(0) : '?'}, Mom5d: ${s.momentum5d != null ? Number(s.momentum5d).toFixed(2) : '?'}%\n`
+      section += `  ATR: ${s.atr != null ? Number(s.atr).toFixed(2) : '?'}% (${s.atrRaw != null ? Number(s.atrRaw).toFixed(2) : '?'} pts), Vol Ratio: ${s.volumeRatio != null ? Number(s.volumeRatio).toFixed(2) : '?'}, RSI: ${s.rsi != null ? Number(s.rsi).toFixed(0) : '?'}, Mom5d: ${s.momentum5d != null ? Number(s.momentum5d).toFixed(2) : '?'}%\n`
       if (s.earningsDate) {
         const d = s.daysUntilEarnings
         const label = d > 0 ? `in ${d} day${d > 1 ? 's' : ''}` : d === 0 ? 'TODAY' : `${Math.abs(d)} day${Math.abs(d) > 1 ? 's' : ''} ago`
@@ -986,6 +986,10 @@ function buildScannerGateSection(scannerResults) {
     })
     section += `\n**IMPORTANT:** These watchlist tickers did NOT pass the scanner threshold for swing trades. `
     section += `Your swing verdict MUST be WATCHLIST, not TAKE TRADE.\n`
+    section += `**ATR-BASED LEVELS:** When suggesting entry/stop/target for WATCHLIST signals, you MUST use the ATR (pts) value above:\n`
+    section += `- Stop distance = 1.0 × ATR (pts) from entry. Do NOT use round numbers or arbitrary levels.\n`
+    section += `- Target = 1.5–2.0 × ATR (pts) from entry.\n`
+    section += `- Example: Price 9000p, ATR 150 pts → Stop ~8850p, Target ~9225-9300p.\n`
     section += `**However**, evaluate each for a DAY TRADE setup using the S/R and ATR data above.\n`
     section += `**EARNINGS EXCLUSION:** Do NOT suggest ANY trades (swing or day) for stocks with an earnings warning above.\n\n`
   }

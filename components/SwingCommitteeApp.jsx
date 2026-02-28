@@ -635,6 +635,7 @@ export default function SwingCommitteeApp() {
             earningsWarning: s.earningsWarning,
             // Day trade data — S/R, volatility, volume, momentum
             atr: s.indicators?.atr,
+            atrRaw: s.indicators?.atrRaw,
             nearestSupport: s.indicators?.nearestSupport,
             nearestResistance: s.indicators?.nearestResistance,
             volumeRatio: s.indicators?.volumeRatio,
