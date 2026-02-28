@@ -629,6 +629,12 @@ export default function SwingCommitteeApp() {
           watchlist: (scanResults.results?.watchlist || []).map(s => ({
             ticker: s.ticker, score: s.score, direction: s.direction,
             price: s.price, currency: s.currency,
+            // Stage failure data
+            srDemotion: s.srDemotion || false,
+            originalDirection: s.originalDirection || null,
+            longScore: s.longScore, shortScore: s.shortScore,
+            longPassing: s.longPassing, shortPassing: s.shortPassing,
+            volatilityWarning: s.volatilityWarning || null,
             // Earnings proximity
             earningsDate: s.earningsDate,
             daysUntilEarnings: s.daysUntilEarnings,

@@ -836,6 +836,8 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
       "sector": "Technology",
       "setupType": "Breakout Watch",
       "reasoning": "Consolidating below resistance. Need volume confirmation on breakout. 3/6 pillars currently aligned - would improve to 4/6 on breakout.",
+      "waitingFor": "Strong breakout above $175 with volume confirmation",
+      "stageScoring": "Stage 1 (Direction): PASS — LONG signal assigned | Stage 2 (S/R Gate): FAIL — LONG blocked by resistance air pocket | Stage 3 (Regime Gate): N/A",
       "catalyst": "Awaiting breakout above key resistance",
       "risks": ["Could fail at resistance", "Market sentiment dependent"],
       "pillars": {
@@ -903,6 +905,8 @@ Replace the example values with actual analysis. The JSON must be valid and pars
 - company, sector, setupType
 - currentPrice, triggerLevel, potentialEntry, potentialStop, potentialTarget
 - pillarCount, grade, reasoning, catalyst, risks
+- waitingFor: 1 sentence describing the specific condition that would make this tradeable (e.g. "Breakout above 9000 with volume" or "Pullback to 150 support zone")
+- stageScoring: Copy the TRADE STAGE SCORING from the Scanner Gate section above for this ticker. Use the exact stage results provided — do NOT recalculate.
 - pillars object with pass/note for all 6 pillars (livermore, oneil, minervini, darvas, raschke, sectorRS)
 
 **IMPORTANT FOR POSITION REVIEWS:** If there are open positions, include a "positionReviews" array with each position containing:
@@ -982,6 +986,74 @@ function buildScannerGateSection(scannerResults) {
         const d = s.daysUntilEarnings
         const label = d > 0 ? `in ${d} day${d > 1 ? 's' : ''}` : d === 0 ? 'TODAY' : `${Math.abs(d)} day${Math.abs(d) > 1 ? 's' : ''} ago`
         section += `  ⚠️ EARNINGS: ${s.earningsDate} (${label}) — DO NOT TRADE\n`
+      }
+
+      // ── TRADE STAGE SCORING ──
+      const market = s.ticker?.endsWith('.L') ? 'uk' : 'us'
+      const mktThresh = thresholds?.[market] || thresholds
+      const longThresh = mktThresh?.long || thresholds?.long || {}
+      const shortThresh = mktThresh?.short || thresholds?.short || {}
+
+      // Determine the best-side scores for this stock
+      const bestScore = s.score ?? 0
+      const longPassing = s.longPassing ?? 0
+      const shortPassing = s.shortPassing ?? 0
+      const hasLongSignal = (s.priceVsMa20 > 0) || (s.momentum5d > 0)
+      const hasShortSignal = (s.priceVsMa20 < 0) || (s.momentum5d < 0)
+
+      section += `  TRADE STAGE SCORING:\n`
+
+      // Stage 1: Direction — needs >= 4 pillars, >= 50% score, directional signal
+      const longS1 = longPassing >= 4 && (s.longScore ?? 0) >= 50 && hasLongSignal
+      const shortS1 = shortPassing >= 4 && (s.shortScore ?? 0) >= 50 && hasShortSignal
+      if (longS1 || shortS1) {
+        section += `    Stage 1 (Direction): PASS — ${longS1 ? 'LONG' : ''}${longS1 && shortS1 ? '/' : ''}${shortS1 ? 'SHORT' : ''} signal assigned\n`
+      } else {
+        const reasons = []
+        if (!hasLongSignal && !hasShortSignal) reasons.push('no directional signal')
+        if (longPassing < 4 && shortPassing < 4) reasons.push(`pillars: ${Math.max(longPassing, shortPassing)}/4`)
+        const bestSideScore = Math.max(s.longScore ?? 0, s.shortScore ?? 0)
+        if (bestSideScore < 50) reasons.push(`score: ${bestSideScore.toFixed(0)}%/50%`)
+        section += `    Stage 1 (Direction): FAIL — ${reasons.join(', ')}\n`
+      }
+
+      // Stage 2: S/R Air Pocket Gate
+      if (s.srDemotion) {
+        section += `    Stage 2 (S/R Gate): FAIL — ${s.originalDirection || '?'} blocked by S/R air pocket (insufficient room to target)\n`
+      } else if (longS1 || shortS1) {
+        section += `    Stage 2 (S/R Gate): PASS\n`
+      } else {
+        section += `    Stage 2 (S/R Gate): N/A (did not reach Stage 2)\n`
+      }
+
+      // Stage 3: Regime Gate — score and pillar thresholds
+      if (s.earningsWarning) {
+        section += `    Stage 3 (Regime Gate): N/A (blocked by earnings proximity)\n`
+      } else if (s.volatilityWarning) {
+        section += `    Stage 3 (Regime Gate): N/A (blocked by volatility spike)\n`
+      } else if (!longS1 && !shortS1) {
+        section += `    Stage 3 (Regime Gate): N/A (did not reach Stage 3)\n`
+      } else {
+        const s3Reasons = []
+        if (longS1) {
+          const scoreOk = bestScore >= (longThresh.score || 70)
+          const pillarOk = longPassing >= (longThresh.pillars || 4)
+          if (!scoreOk) s3Reasons.push(`long score ${bestScore.toFixed(0)}% < ${longThresh.score || 70}%`)
+          if (!pillarOk) s3Reasons.push(`long pillars ${longPassing} < ${longThresh.pillars || 4}`)
+        }
+        if (shortS1) {
+          const scoreOk = bestScore >= (shortThresh.score || 70)
+          const pillarOk = shortPassing >= (shortThresh.pillars || 4)
+          if (!scoreOk) s3Reasons.push(`short score ${bestScore.toFixed(0)}% < ${shortThresh.score || 70}%`)
+          if (!pillarOk) s3Reasons.push(`short pillars ${shortPassing} < ${shortThresh.pillars || 4}`)
+        }
+        if (s3Reasons.length > 0) {
+          section += `    Stage 3 (Regime Gate): FAIL — ${s3Reasons.join(', ')}\n`
+        } else if (s.srDemotion) {
+          section += `    Stage 3 (Regime Gate): N/A (blocked at Stage 2)\n`
+        } else {
+          section += `    Stage 3 (Regime Gate): PASS (watchlisted for other reasons)\n`
+        }
       }
     })
     section += `\n**IMPORTANT:** These watchlist tickers did NOT pass the scanner threshold for swing trades. `
@@ -1314,9 +1386,19 @@ function buildWatchlistAnalysisText(item) {
     text += `**REASONING:**\n${item.reasoning}\n\n`
   }
 
-  // Catalyst
-  if (item.catalyst) {
-    text += `**WAITING FOR:** ${item.catalyst}\n\n`
+  // Catalyst / Waiting For
+  if (item.waitingFor || item.catalyst) {
+    text += `**WAITING FOR:** ${item.waitingFor || item.catalyst}\n\n`
+  }
+
+  // Trade Stage Scoring
+  if (item.stageScoring) {
+    text += `**TRADE STAGE SCORING:**\n`
+    const stages = item.stageScoring.split('|').map(s => s.trim())
+    stages.forEach(stage => {
+      text += `  ${stage}\n`
+    })
+    text += `\n`
   }
 
   // Risks
