@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   TrendingUp, TrendingDown, Shield, Brain, ChevronRight, ChevronLeft,
   Check, AlertCircle, Loader2, Target, Zap, Rocket, BarChart2,
@@ -302,6 +302,11 @@ export default function SwingCommitteeApp() {
 
   const [analysisSteps, setAnalysisSteps] = useState([]);
   const [currentAnalysisStep, setCurrentAnalysisStep] = useState(0);
+
+  const systemSummary = useMemo(
+    () => buildSystemSummary(scanResults, marketContextData),
+    [scanResults, marketContextData]
+  );
 
   // Extract tickers from watchlist text
   const extractTickers = (text) => {
@@ -1649,7 +1654,7 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                         </div>
                         <div className="grid gap-3 max-h-96 overflow-y-auto">
                           {scanResults.results.long.map((stock, i) => (
-                            <div key={stock.ticker} className="bg-white border border-green-200 rounded-lg p-3">
+                            <div key={stock.ticker} className="bg-white border border-green-200 rounded-lg p-3" style={{ contentVisibility: 'auto', containIntrinsicSize: '0 80px' }}>
                               {/* Header row */}
                               <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-2">
@@ -1790,7 +1795,7 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
                           </div>
                           <div className="grid gap-3 max-h-96 overflow-y-auto">
                             {scanResults.results.short.map((stock, i) => (
-                              <div key={stock.ticker} className="bg-white border border-red-200 rounded-lg p-3">
+                              <div key={stock.ticker} className="bg-white border border-red-200 rounded-lg p-3" style={{ contentVisibility: 'auto', containIntrinsicSize: '0 80px' }}>
                                 {/* Header row */}
                                 <div className="flex items-center justify-between mb-2">
                                   <div className="flex items-center gap-2">
@@ -2491,7 +2496,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
 
               {/* Tab Content */}
               {activeReportTab === 'summary' && (() => {
-                const sysSummary = buildSystemSummary(scanResults, marketContextData)
+                const sysSummary = systemSummary
                 const regimeColors = { GREEN: 'text-green-600', YELLOW: 'text-amber-600', RED: 'text-red-600' }
                 const regimeBgColors = { GREEN: 'bg-green-50 border-green-200', YELLOW: 'bg-amber-50 border-amber-200', RED: 'bg-red-50 border-red-200' }
 
@@ -2641,10 +2646,9 @@ Format: Ticker, Notes (we'll fetch live prices)"
                   {analysisResult.signals && analysisResult.signals.length > 0 ? (
                     <div>
                       {analysisResult.signals
-                        .filter(signal => !isNoTrade(signal))
-                        .filter(signal => signal.ticker && !signal.ticker.includes('REQUEST') && !signal.ticker.includes('NEEDED') && !signal.ticker.includes('TBD'))
+                        .filter(signal => !isNoTrade(signal) && signal.ticker && !signal.ticker.includes('REQUEST') && !signal.ticker.includes('NEEDED') && !signal.ticker.includes('TBD'))
                         .map((signal, index) => (
-                        <div key={index} className="border-b border-gray-100 last:border-b-0">
+                        <div key={index} className="border-b border-gray-100 last:border-b-0" style={{ contentVisibility: 'auto', containIntrinsicSize: '0 72px' }}>
                           <button
                             onClick={() => setExpandedSignal(expandedSignal === signal.ticker ? null : signal.ticker)}
                             className="w-full p-4 flex items-center justify-between hover:bg-gray-50"
