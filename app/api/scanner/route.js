@@ -1,78 +1,8 @@
 // Stock Scanner API - Uses Yahoo Finance data to find swing trade candidates
 // Applies the Six Pillars methodology for ranking
 
-// Universe of instruments to scan
-const UNIVERSE = {
-  // S&P 100 (top 100 by market cap) + top 25 Nasdaq-100 not in S&P 100
-  // ~125 unique US names covering mega-cap and large-cap growth/tech
-  usStocks: [
-    // ── S&P 100 (by market cap) ──
-    'NVDA', 'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META', 'TSLA', 'AVGO', 'BRK-B', 'WMT',
-    'LLY', 'JPM', 'XOM', 'V', 'JNJ', 'MA', 'ORCL', 'COST', 'ABBV', 'HD',
-    'BAC', 'PG', 'CVX', 'CAT', 'KO', 'AMD', 'GE', 'NFLX', 'PLTR', 'CSCO',
-    'MRK', 'PM', 'GS', 'MS', 'WFC', 'RTX', 'UNH', 'IBM', 'TMUS', 'INTC',
-    'MCD', 'AXP', 'PEP', 'LIN', 'VZ', 'TXN', 'T', 'AMGN', 'ABT', 'NEE',
-    'C', 'GILD', 'BA', 'TMO', 'DIS', 'CRM', 'ISRG', 'SCHW', 'BLK', 'DE',
-    'LOW', 'PFE', 'UNP', 'HON', 'DHR', 'LMT', 'QCOM', 'UBER', 'ACN', 'COP',
-    'BKNG', 'COF', 'MDT', 'BMY', 'CMCSA', 'MO', 'NOW', 'INTU', 'ADBE', 'SBUX',
-    'SO', 'UPS', 'CVS', 'DUK', 'GD', 'NKE', 'MMM', 'AMT', 'USB', 'FDX',
-    'EMR', 'BK', 'MDLZ', 'CL', 'GM', 'SPG', 'TGT', 'MET', 'AIG', 'PYPL',
-    // ── Nasdaq-100 top 25 NOT in S&P 100 ──
-    'ASML', 'LRCX', 'AMAT', 'KLAC', 'ADI', 'SHOP', 'PDD', 'PANW', 'ARM', 'APP',
-    'CRWD', 'CEG', 'MELI', 'WDC', 'MAR', 'STX', 'ADP', 'REGN', 'SNPS', 'CDNS',
-    'ORLY', 'MNST', 'CTAS', 'CSX', 'ABNB'
-  ],
-  // FTSE 100 — top 50 most liquid by market cap
-  ukStocks: [
-    'SHEL.L', 'AZN.L', 'HSBA.L', 'ULVR.L', 'BP.L', 'GSK.L', 'RIO.L', 'REL.L', 'DGE.L', 'BATS.L',
-    'LSEG.L', 'NG.L', 'AAL.L', 'GLEN.L', 'VOD.L', 'BHP.L', 'PRU.L', 'LLOY.L', 'BARC.L', 'RKT.L',
-    'IMB.L', 'SSE.L', 'AHT.L', 'BA.L', 'CPG.L', 'EXPN.L', 'STAN.L', 'ABF.L', 'ANTO.L', 'CRH.L',
-    'FERG.L', 'IAG.L', 'IHG.L', 'KGF.L', 'LAND.L', 'LGEN.L', 'MNG.L', 'NWG.L', 'PSON.L', 'RR.L',
-    'SBRY.L', 'SGE.L', 'SMDS.L', 'SMT.L', 'SN.L', 'SPX.L', 'SVT.L', 'TSCO.L', 'WPP.L', 'WTB.L'
-  ],
-  // Major indices
-  indices: [
-    '^GSPC',   // S&P 500
-    '^DJI',    // Dow Jones
-    '^IXIC',   // NASDAQ Composite
-    '^FTSE',   // FTSE 100
-    '^GDAXI',  // DAX
-    '^FCHI',   // CAC 40
-    '^N225',   // Nikkei 225
-    '^HSI',    // Hang Seng
-  ],
-  // Major forex pairs
-  forex: [
-    'GBPUSD=X',  // GBP/USD
-    'EURUSD=X',  // EUR/USD
-    'USDJPY=X',  // USD/JPY
-    'AUDUSD=X',  // AUD/USD
-    'USDCAD=X',  // USD/CAD
-    'USDCHF=X',  // USD/CHF
-    'EURGBP=X',  // EUR/GBP
-    'GBPJPY=X',  // GBP/JPY
-  ],
-  // Major cryptocurrencies
-  crypto: [
-    'BTC-USD',   // Bitcoin
-    'ETH-USD',   // Ethereum
-    'BNB-USD',   // Binance Coin
-    'XRP-USD',   // Ripple
-    'SOL-USD',   // Solana
-    'ADA-USD',   // Cardano
-    'DOGE-USD',  // Dogecoin
-    'AVAX-USD',  // Avalanche
-  ],
-  // Key commodities (legacy, mapped to indices for now)
-  commodities: [
-    'GC=F',  // Gold
-    'SI=F',  // Silver
-    'CL=F',  // WTI Crude Oil
-    'BZ=F',  // Brent Crude
-    'NG=F',  // Natural Gas
-    'HG=F',  // Copper
-  ]
-}
+import { evaluateDayTradeCandidates, buildSectorCounts, getSessionRules } from '../../../lib/dayTradeScorer.js'
+import { UNIVERSE } from '../../../lib/universe.js'
 
 // =====================================================
 // RELATIVE STRENGTH SLOPE CONFIG
@@ -200,10 +130,11 @@ export async function POST(request) {
       : (ukRegimeState === 'YELLOW' || usRegimeState === 'YELLOW') ? 'YELLOW'
       : 'GREEN'
 
-    // Fetch benchmark data for RS Slope computation (before individual ticker scans)
-    const [usBenchmarkCloses, ukBenchmarkCloses] = await Promise.all([
+    // Fetch benchmark data for RS Slope computation and VIX for Day-1 module
+    const [usBenchmarkCloses, ukBenchmarkCloses, vixValue] = await Promise.all([
       instruments.usStocks ? fetchBenchmarkCloses(RS_CONFIG.us_benchmark) : null,
       instruments.ukStocks ? fetchBenchmarkCloses(RS_CONFIG.uk_benchmark) : null,
+      fetchVIX(),
     ])
 
     // Fetch historical data — each ticker gets its OWN market's regime state + benchmark
@@ -464,6 +395,50 @@ export async function POST(request) {
     const longResults = finaliseCandidates(longCandidates, 'long')
     const shortResults = finaliseCandidates(shortCandidates, 'short')
 
+    // =====================================================
+    // DAY-1 CAPTURE MODULE — 9-factor intraday scoring
+    // Runs on ALL stocks that passed Stage 1 direction assignment
+    // =====================================================
+    let dayTradeResults = { candidates: [], excluded: [], summary: { total_candidates_assessed: 0 } }
+    try {
+      // Build sector counts for Factor 9
+      const sectorCounts = buildSectorCounts(longCandidates, shortCandidates, watchlistCandidates)
+
+      // Compute index 5-day returns for Factor 7 (Relative Strength)
+      const spy5d = usBenchmarkCloses && usBenchmarkCloses.length >= 6
+        ? ((usBenchmarkCloses[usBenchmarkCloses.length - 1] / usBenchmarkCloses[usBenchmarkCloses.length - 6]) - 1) * 100
+        : 0
+      const ftse5d = ukBenchmarkCloses && ukBenchmarkCloses.length >= 6
+        ? ((ukBenchmarkCloses[ukBenchmarkCloses.length - 1] / ukBenchmarkCloses[ukBenchmarkCloses.length - 6]) - 1) * 100
+        : 0
+
+      // Annotate resolved direction for BOTH stocks (Day-1 scorer needs a single direction)
+      const annotatedResults = allResults.map(r => {
+        const resolved = resolvedResults.find(rr => rr.ticker === r.ticker)
+        return {
+          ...r,
+          resolvedDirection: resolved?.direction || r.direction,
+          tradeSource: tradeTickers.has(r.ticker) ? 'PRIMARY' : 'WATCHLIST',
+        }
+      })
+
+      dayTradeResults = evaluateDayTradeCandidates({
+        scanResults: annotatedResults,
+        vix: vixValue,
+        accountSize: acctSize || 10000,
+        futuresData: {
+          sp500Pct: usMclPolicy?.benchmarkChange5d || 0,
+          ftsePct: ukMclPolicy?.benchmarkChange5d || 0,
+        },
+        indexReturns: { spy5d, ftse5d },
+        sectorCounts,
+      })
+
+      console.log(`Day-1 Capture: ${dayTradeResults.candidates.length} candidates (${dayTradeResults.summary.a_grade} A-GRADE, ${dayTradeResults.summary.b_grade} B-GRADE), ${dayTradeResults.excluded.length} excluded, VIX: ${vixValue}`)
+    } catch (dayTradeError) {
+      console.error('Day-1 Capture Module error (non-fatal):', dayTradeError.message)
+    }
+
     return Response.json({
       timestamp: new Date().toISOString(),
       mode,
@@ -498,13 +473,18 @@ export async function POST(request) {
       results: {
         long: longResults,
         short: shortResults,
-        watchlist: watchlistCandidates
+        watchlist: watchlistCandidates,
+        dayTrades: dayTradeResults,
       },
       nearMisses,
       summary: {
         longCount: longResults.length,
         shortCount: shortResults.length,
         watchlistCount: watchlistCandidates.length,
+        dayTradeCount: dayTradeResults.candidates?.length || 0,
+        dayTradeAGrade: dayTradeResults.summary?.a_grade || 0,
+        dayTradeBGrade: dayTradeResults.summary?.b_grade || 0,
+        vix: vixValue,
         topLong: longResults[0]?.ticker || null,
         topShort: shortResults[0]?.ticker || null
       },
@@ -1109,6 +1089,7 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
     const meta = result.meta
     const timestamps = result.timestamp || []
     const quote = result.indicators.quote[0]
+    const opens = quote.open || []
     const closes = quote.close || []
     const highs = quote.high || []
     const lows = quote.low || []
@@ -1151,6 +1132,10 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
     // Determine direction and overall score
     const directionResult = determineTradeDirection(pillars, indicators)
     let { direction, score, reasoning } = directionResult
+
+    // Stage 1 direction — captured BEFORE any demotions (earnings, volatility, S/R)
+    // Used by Day-1 Capture Module to identify day trade candidates
+    const stage1Direction = direction
 
     // =====================================================
     // BOTH → resolve to best single direction for downstream processing
@@ -1406,15 +1391,26 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
     // Get entry timing guidance
     const entryTiming = getEntryTiming(ticker)
 
+    // Build last 3 sessions for Day-1 Factor 5 (Momentum Consistency)
+    const n = closes.length
+    const last3Sessions = []
+    for (let i = Math.max(0, n - 4); i < n - 1; i++) {
+      if (opens[i] != null && closes[i] != null) {
+        last3Sessions.push({ open: opens[i], close: closes[i], high: highs[i], low: lows[i] })
+      }
+    }
+
     return {
       ticker,
       name: meta.shortName || ticker,
       price: meta.regularMarketPrice,
+      previousClose: meta.previousClose || null,
       currency: meta.currency,
       change: meta.previousClose
         ? ((meta.regularMarketPrice - meta.previousClose) / meta.previousClose * 100).toFixed(2) + '%'
         : indicators.momentum5d?.toFixed(2) + '%',
       direction,
+      stage1Direction,
       score,
       // Always include both-side scores for near miss detection + Stage 3 regime resolution
       longScore,
@@ -1428,6 +1424,7 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
       pillars,
       indicators: {
         rsi: indicators.rsi,
+        currentPrice: indicators.currentPrice,
         momentum5d: indicators.momentum5d,
         momentum20d: indicators.momentum20d,
         momentum63d: indicators.momentum63d,
@@ -1439,6 +1436,7 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
         avgVolume20: indicators.avgVolume20,
         rsSlope20: indicators.rsSlope20,
         atr: indicators.atr,
+        atrRaw: indicators.atrRaw,
         distanceFrom52High: indicators.distanceFrom52High,
         distanceFrom52Low: indicators.distanceFrom52Low,
         // S/R ladder summary
@@ -1453,6 +1451,11 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
           distanceR: indicators.atrRaw > 0 ? (indicators.distanceToResistance / indicators.atrRaw).toFixed(2) : null
         } : null
       },
+      // Full S/R ladders — used by Day-1 scorer for target capping and air pocket gate
+      allSupportLevels: indicators.allSupportLevels || [],
+      allResistanceLevels: indicators.allResistanceLevels || [],
+      // Last 3 sessions — used by Day-1 Factor 5 (Momentum Consistency)
+      last3Sessions,
       // ATR-based trade management
       tradeManagement,
       entryTiming,
@@ -2150,6 +2153,39 @@ async function fetchBenchmarkCloses(symbol) {
   } catch (err) {
     console.log(`[RS] Error fetching benchmark ${symbol}: ${err.message}`)
     return null
+  }
+}
+
+// =====================================================
+// VIX FETCH — Current CBOE Volatility Index
+// Used by Day-1 Capture Module for position sizing and eligibility
+// =====================================================
+let vixCache = { value: null, timestamp: 0 }
+
+async function fetchVIX() {
+  // Cache for 15 minutes
+  if (vixCache.value != null && (Date.now() - vixCache.timestamp < 900000)) {
+    return vixCache.value
+  }
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=5d`
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    })
+    if (!response.ok) {
+      console.log(`[VIX] Failed to fetch: ${response.status}`)
+      return 18 // Default assumption
+    }
+    const data = await response.json()
+    const closes = data.chart?.result?.[0]?.indicators?.quote?.[0]?.close || []
+    const validCloses = closes.filter(c => c != null)
+    const vix = validCloses.length > 0 ? validCloses[validCloses.length - 1] : 18
+    console.log(`[VIX] Current value: ${vix.toFixed(2)}`)
+    vixCache = { value: parseFloat(vix.toFixed(2)), timestamp: Date.now() }
+    return vixCache.value
+  } catch (err) {
+    console.log(`[VIX] Error fetching: ${err.message}`)
+    return 18
   }
 }
 

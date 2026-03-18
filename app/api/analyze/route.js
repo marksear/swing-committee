@@ -85,6 +85,8 @@ function buildFullPrompt(formData, marketPulse, livePrices = {}, scannerResults 
   const hasScannerDeveloping = scannerDevelopingTickers.length > 0
   const hasWatchlist = hasUserWatchlist || hasScannerDeveloping
   const hasPositions = formData.openPositions && formData.openPositions.trim().length > 0
+  // Day-1 Capture Module candidates (pre-scored by scanner)
+  const dayTradeData = scannerResults?.results?.dayTrades || { candidates: [], excluded: [], summary: {} }
   const hasLivePrices = livePrices && Object.keys(livePrices).length > 0
 
   // Build live prices section if available
@@ -634,31 +636,33 @@ Do NOT run the full 9-step protocol — these are developing setups, not trade c
 ${!hasWatchlist ? '# WATCHLIST\n\nNo watchlist provided.\n\n---' : ''}
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# DAY TRADE EVALUATION — INTRADAY SETUPS FROM DAILY DATA
+# DAY-1 CAPTURE MODULE — PRE-SCORED INTRADAY CANDIDATES
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-For EACH watchlist stock with S/R data in the Scanner Gate section, evaluate whether
-it has a viable same-day intraday trade setup. Day trades use tighter parameters.
+${buildDayTradeCandidatesSection(dayTradeData)}
 
-**DAY TRADE METHODOLOGY:**
-- Entry: At a specific S/R level (support for longs, resistance for shorts) — a SINGLE price
-- Stop: 0.3–0.5 ATR beyond entry (tighter than swing)
-- Target: 0.5–1.0 ATR from entry (small profit, high probability)
-- Must close by end of day — no overnight hold
+**DAY TRADE HARD CONSTRAINT:** Day trade stops and targets use iATR-based distances per the Day-1 scoring tier.
+A-GRADE: 0.3 iATR stop, 0.5 iATR target. B-GRADE: 0.4 iATR stop, 0.5 iATR target.
+You must NOT override these distances. Only stocks scoring >= 10/16 on the Day-1 factors qualify for day trades.
+You cannot upgrade a sub-10 stock to a day trade.
 
-**VIABILITY CRITERIA (ALL must be true):**
-1. Clear S/R level within 1.0R of current price (reachable today)
-2. Sufficient liquidity: avgVolume20 > 500K (UK) or > 1M (US)
-3. Momentum 5d supports the direction (positive for longs, negative for shorts)
-4. RSI between 25–75 (not at extremes)
-5. Tight stop possible: stop distance ≤ 0.5 ATR
-6. No upcoming earnings: stock must NOT have an earnings warning (marked with ⚠️ EARNINGS above)
+**COMMITTEE DAY TRADE ACCEPTANCE:**
+- Aggressive: Accepts A-GRADE and B-GRADE day trades
+- Balanced: Accepts A-GRADE day trades only
+- Defensive: Accepts A-GRADE day trades only, VIX must be < 20
 
-**SPREAD BET SIZING:**
-£ per Point = (Account Risk Amount) / Stop Distance in Points
-(Use the same risk parameters as swing trades.)
+For each day trade candidate, provide:
+1. Brief qualitative assessment of the setup
+2. Key risk factors for intraday execution
+3. Your confidence level and any concerns
+4. Copy the pre-computed levels EXACTLY — do NOT recalculate stops/targets
 
-If a watchlist stock does NOT meet all criteria, do NOT include it in the dayTrades JSON array.
+**ADVISORY — Swing Trade Stop Management Update:**
+The Day-1 analysis recommends updating swing trade stop management:
+- After T1 hit (1.0R): move stop to HALF-BACK (halfway between original stop and entry), NOT to breakeven
+- Move to breakeven only after price reaches 1.3R
+- Begin trailing at 50% of profit after T2 (1.618R)
+This is a recommendation only, not a mandatory change.
 
 ---
 
@@ -852,20 +856,25 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
   ],
   "dayTrades": [
     {
-      "ticker": "VOD",
+      "ticker": "NVDA",
       "direction": "LONG",
-      "entry": "72.50p",
-      "stop": "71.80p",
-      "target": "73.50p",
-      "riskReward": "1.4:1",
-      "setup": "Bounce off daily pivot support at 72.40",
+      "tier": "A-GRADE",
+      "totalScore": 14,
+      "entry": "$944.30",
+      "stop": "$938.84",
+      "target": "$953.40",
+      "riskReward": "1.67:1",
+      "iATR": 18.20,
+      "entryType": "opening_range_breakout",
+      "setup": "Strong gap alignment with sector catalyst. OR breakout entry after 15-min range.",
+      "qualitativeAssessment": "High conviction setup with peer AVGO earnings catalyst driving sector momentum. 3/3 momentum consistency supports direction.",
+      "riskFactors": ["Could fail at $950 round number resistance", "VIX at 18.5 — normal conditions"],
+      "crabelEligible": true,
+      "vwapBias": "ALIGNED",
       "spreadBetSizing": {
-        "entryPoints": "7250",
-        "stopPoints": "7180",
-        "stopDistance": "70 points",
-        "poundsPerPoint": "£1.43",
-        "notionalExposure": "£10,358",
-        "marginRequired": "£2,072"
+        "stopDistance": "546 points",
+        "poundsPerPoint": "£9.16",
+        "riskAmount": "£50"
       }
     }
   ],
@@ -899,7 +908,7 @@ For each watchlist stock, provide the FULL signal analysis as per Section 5.
 
 Replace the example values with actual analysis. The JSON must be valid and parseable. Include ALL trades from the TRADES TABLE in the trades array. The tradeAnalysis object must contain the FULL detailed analysis for each trade.
 
-**dayTrades:** Include ALL viable intraday setups from the watchlist. Each must have entry (single price, not a zone), stop, target, riskReward, setup description, and spreadBetSizing. If none are viable, use an empty array [].
+**dayTrades:** Include ALL Day-1 qualified candidates from the PRE-SCORED section above. Copy the ticker, direction, tier, totalScore, entry, stop, target, riskReward, iATR, entryType, vwapBias, and crabelEligible EXACTLY from the pre-computed data. Add your own qualitativeAssessment (1-2 sentences), riskFactors (array of strings), and setup description. Include spreadBetSizing. If no candidates qualified, use an empty array [].
 
 **IMPORTANT FOR WATCHLIST ITEMS:** Each watchlist item MUST include ALL fields shown in the example above, including:
 - company, sector, setupType
@@ -921,6 +930,72 @@ Replace the example values with actual analysis. The JSON must be valid and pars
 ---
 
 Be specific and practical. For each trade signal, provide BOTH Standard (shares) AND Spread Bet (£/point) sizing. Mark any data that needs real-time verification as **NEEDS CHECK**.`
+}
+
+/**
+ * Build Day-1 Capture Module section for the AI prompt.
+ * Shows pre-scored day trade candidates with their 9-factor scores and trade levels.
+ */
+function buildDayTradeCandidatesSection(dayTradeData) {
+  if (!dayTradeData || !dayTradeData.candidates || dayTradeData.candidates.length === 0) {
+    const summary = dayTradeData?.summary || {}
+    const assessed = summary.total_candidates_assessed || 0
+    if (assessed === 0) return 'No day trade candidates assessed (scanner may not have run).\n'
+    return `Day-1 Scoring: ${assessed} stocks assessed — none qualified (min score: 10/16).\n`
+  }
+
+  const { candidates, excluded, summary, vix } = dayTradeData
+  let section = ''
+
+  // Summary line
+  section += `**Day-1 Scoring Summary:** ${summary.total_candidates_assessed} assessed → `
+  section += `${summary.a_grade} A-GRADE, ${summary.b_grade} B-GRADE`
+  if (summary.excluded_low_score) section += `, ${summary.excluded_low_score} below threshold`
+  if (summary.excluded_liquidity) section += `, ${summary.excluded_liquidity} liquidity fails`
+  if (summary.excluded_air_pocket) section += `, ${summary.excluded_air_pocket} air pocket blocks`
+  section += `\n**VIX:** ${vix || '?'}\n\n`
+
+  // Each candidate
+  for (const c of candidates) {
+    const fs = c.factor_scores || {}
+    const sn = c.scoring_notes || {}
+    const tm = c.trade_management || {}
+    const ps = c.position_sizing || {}
+    const sp = tm.stop_progression || {}
+
+    section += `### ${c.ticker} — ${c.direction} — ${c.tier} (${c.total_score}/16)\n`
+    section += `**Sector:** ${c.sector} | **Source:** ${c.source} | **Market:** ${c.market}\n`
+    section += `**Factor Breakdown:**\n`
+    section += `  1. Gap Alignment: ${fs.gap_alignment}/2 — ${sn.gap_note || ''}\n`
+    section += `  2. Pre-Market Volume: ${fs.premarket_volume}/2 — ${sn.volume_note || ''}\n`
+    section += `  3. Catalyst Presence: ${fs.catalyst_presence}/2 — ${sn.catalyst_detail || ''}\n`
+    section += `  4. Technical Level: ${fs.technical_level}/2 — ${sn.technical_note || ''}\n`
+    section += `  5. Momentum Consistency: ${fs.momentum_consistency}/2 — ${sn.momentum_note || ''}\n`
+    section += `  6. Spread & Liquidity: ${fs.spread_liquidity}/2 — ${sn.liquidity_note || ''}\n`
+    section += `  7. Relative Strength: ${fs.relative_strength}/2 — ${sn.rs_note || ''}\n`
+    section += `  8. VWAP Alignment: ${fs.vwap_alignment}/1 — ${sn.vwap_note || ''}\n`
+    section += `  9. Sector Momentum: ${fs.sector_momentum}/1 — ${sn.sector_note || ''}\n`
+    section += `**iATR:** ${c.atr?.intraday_5min_14?.toFixed(2) || '?'} (daily ATR: ${c.atr?.daily_14?.toFixed(2) || '?'}) ${c.atr?.iatr_is_estimate ? '(estimated 0.65x fallback)' : ''}\n`
+    section += `**Entry Type:** ${c.entry_zone?.type?.replace(/_/g, ' ') || 'OR breakout'}\n`
+    section += `**Stop:** ${tm.stop?.toFixed(2) || '?'} (${tm.stop_distance_iatr} iATR = ${tm.stop_distance_price?.toFixed(2) || '?'} pts)\n`
+    section += `**Target:** ${tm.target?.toFixed(2) || '?'} (${tm.target_distance_iatr} iATR = ${tm.target_distance_price?.toFixed(2) || '?'} pts)\n`
+    section += `**R:R:** ${tm.target_rr_headline}:1\n`
+    if (tm.target_capped_by) {
+      section += `**Target capped by:** ${tm.target_capped_by.source} at ${tm.target_capped_by.level?.toFixed(2)}\n`
+    }
+    section += `**Stop Progression:** BREAKEVEN at +0.25 iATR → LOCK +0.15 at +0.35 → CLOSE +0.30 at +0.45 → TARGET at +0.50\n`
+    section += `**Friction:** ${tm.friction?.friction_offset?.toFixed(2) || '?'} (${tm.friction?.note || ''})\n`
+    section += `**Position:** Risk ${ps.effective_risk_pct}% = £${ps.effective_risk?.toFixed(0) || '?'} → £${ps.pounds_per_point?.toFixed(2) || '?'}/point\n`
+    if (c.sr_ladder?.vwap_bias) {
+      section += `**VWAP:** ${c.sr_ladder.vwap_prior_session?.toFixed(2) || 'N/A'} (${c.sr_ladder.vwap_bias})\n`
+    }
+    if (c.crabel_early_entry?.eligible) {
+      section += `**Crabel Early Entry:** ELIGIBLE — ${c.crabel_early_entry.reason}\n`
+    }
+    section += '\n'
+  }
+
+  return section
 }
 
 /**
@@ -1095,18 +1170,44 @@ function parseResponse(responseText) {
 
 // Extract JSON data block from response
 function extractJsonData(text) {
+  // Try 1: Standard ```json code block
   try {
-    // Look for JSON code block
     const jsonMatch = text.match(/```json\s*\n?([\s\S]*?)\n?```/i)
     if (jsonMatch && jsonMatch[1]) {
-      const jsonStr = jsonMatch[1].trim()
-      const data = JSON.parse(jsonStr)
-      console.log('Successfully parsed JSON data:', data)
+      const data = JSON.parse(jsonMatch[1].trim())
+      console.log('[Analyze] Parsed JSON from ```json block')
       return data
     }
   } catch (error) {
-    console.error('Failed to parse JSON data:', error.message)
+    console.error('[Analyze] ```json block found but failed to parse:', error.message)
   }
+
+  // Try 2: Any ``` code block that starts with {
+  try {
+    const codeMatch = text.match(/```\s*\n?(\{[\s\S]*?\})\n?```/)
+    if (codeMatch && codeMatch[1]) {
+      const data = JSON.parse(codeMatch[1].trim())
+      console.log('[Analyze] Parsed JSON from generic ``` block')
+      return data
+    }
+  } catch (error) {
+    console.error('[Analyze] Generic code block parse failed:', error.message)
+  }
+
+  // Try 3: Bare JSON object containing "trades" key (no code fences)
+  try {
+    const bareMatch = text.match(/(\{[\s\S]*"trades"[\s\S]*\})/)
+    if (bareMatch && bareMatch[1]) {
+      // Clean common AI JSON errors: trailing commas before } or ]
+      const cleaned = bareMatch[1].replace(/,\s*([}\]])/g, '$1')
+      const data = JSON.parse(cleaned)
+      console.log('[Analyze] Parsed JSON from bare object (no code fences)')
+      return data
+    }
+  } catch (error) {
+    console.error('[Analyze] Bare JSON parse failed:', error.message)
+  }
+
   return null
 }
 
@@ -1160,7 +1261,7 @@ function convertJsonToSignals(jsonData) {
     }
   }
 
-  // Convert day trades to signals
+  // Convert day trades to signals (Day-1 Capture Module format)
   if (jsonData.dayTrades && Array.isArray(jsonData.dayTrades)) {
     for (const dt of jsonData.dayTrades) {
       let rawSection = buildDayTradeAnalysisText(dt)
@@ -1173,10 +1274,17 @@ function convertJsonToSignals(jsonData) {
         entry: dt.entry,
         stop: dt.stop,
         target: dt.target,
-        grade: null,
-        pillarCount: null,
-        setupType: `Day Trade: ${dt.setup || 'Intraday S/R'}`,
+        grade: dt.tier || null,
+        pillarCount: dt.totalScore || null,
+        setupType: `Day Trade: ${dt.entryType?.replace(/_/g, ' ') || dt.setup || 'Intraday'}`,
         riskReward: dt.riskReward || null,
+        // Day-1 specific fields
+        tier: dt.tier || null,
+        totalScore: dt.totalScore || null,
+        iATR: dt.iATR || null,
+        entryType: dt.entryType || null,
+        vwapBias: dt.vwapBias || null,
+        crabelEligible: dt.crabelEligible || false,
         rawSection,
       })
     }
@@ -1185,26 +1293,72 @@ function convertJsonToSignals(jsonData) {
   return signals
 }
 
-// Build formatted day trade analysis text from JSON data
+// Build formatted day trade analysis text from JSON data (Day-1 Capture Module format)
 function buildDayTradeAnalysisText(dt) {
   const sb = dt.spreadBetSizing || {}
 
-  let text = `### DAY TRADE: ${dt.ticker}\n\n`
+  let text = `### DAY TRADE: ${dt.ticker} — ${dt.direction || 'LONG'}\n\n`
+
+  // Tier badge
+  if (dt.tier) {
+    text += `**${dt.tier}** — Day-1 Score: ${dt.totalScore || '?'}/16\n\n`
+  }
+
   text += `**TYPE:** Intraday Only — CLOSE BY END OF DAY\n\n`
-  text += `**SETUP:** ${dt.setup || 'Intraday S/R level'}\n\n`
+  text += `**SETUP:** ${dt.setup || 'Day-1 scored intraday setup'}\n\n`
+
+  // Qualitative assessment from AI
+  if (dt.qualitativeAssessment) {
+    text += `**ASSESSMENT:** ${dt.qualitativeAssessment}\n\n`
+  }
+
+  // Entry type
+  if (dt.entryType) {
+    text += `**ENTRY TYPE:** ${dt.entryType.replace(/_/g, ' ').toUpperCase()}\n\n`
+  }
 
   text += `**LEVELS:**\n`
   text += `- Entry: ${dt.entry || 'N/A'}\n`
   text += `- Stop: ${dt.stop || 'N/A'}\n`
-  text += `- Target: ${dt.target || 'N/A'}\n`
+  text += `- Target: ${dt.target || 'N/A'} (single target — close 100%)\n`
   text += `- Risk:Reward: ${dt.riskReward || 'N/A'}\n\n`
 
+  // iATR and VWAP
+  if (dt.iATR) {
+    text += `**iATR:** ${dt.iATR}\n`
+  }
+  if (dt.vwapBias) {
+    text += `**VWAP Bias:** ${dt.vwapBias}\n`
+  }
+  text += '\n'
+
+  // Stop Progression
+  text += `**STOP PROGRESSION (Aggressive Ladder):**\n`
+  text += `- BREAKEVEN: Move to entry + friction when +0.25 iATR (50% of target)\n`
+  text += `- LOCK: Lock 0.15 iATR profit when +0.35 iATR (70%)\n`
+  text += `- CLOSE: Lock 0.30 iATR profit when +0.45 iATR (90%)\n`
+  text += `- TARGET: Close 100% at +0.50 iATR\n\n`
+
+  // Crabel
+  if (dt.crabelEligible) {
+    text += `**CRABEL EARLY ENTRY:** ELIGIBLE — can enter before OR established\n\n`
+  }
+
+  // Spread bet sizing
   if (sb.poundsPerPoint) {
     text += `**SPREAD BET SIZING:**\n`
     text += `- £ per Point: ${sb.poundsPerPoint}\n`
     text += `- Stop Distance: ${sb.stopDistance || 'N/A'}\n`
-    text += `- Notional Exposure: ${sb.notionalExposure || 'N/A'}\n`
-    text += `- Margin Required: ${sb.marginRequired || 'N/A'}\n\n`
+    text += `- Risk Amount: ${sb.riskAmount || 'N/A'}\n\n`
+  }
+
+  // Risk factors
+  if (dt.riskFactors && dt.riskFactors.length > 0) {
+    text += `**RISK FACTORS:**\n`
+    for (const risk of dt.riskFactors) {
+      text += `- ${risk}\n`
+    }
+    text += '\n'
   }
 
   return text
@@ -1820,7 +1974,7 @@ function extractSignals(text) {
       }
     }
 
-    return signals
+    return filterSparseSignals(signals)
   }
 
   // FALLBACK: If no Chair's Decision table found, extract from individual TRADE SIGNAL sections
@@ -1848,7 +2002,19 @@ function extractSignals(text) {
     }
   }
 
-  return signals
+  return filterSparseSignals(signals)
+}
+
+// Drop TAKE TRADE signals that lack critical trade levels (entry AND stop both missing).
+// These are typically tickers only "mentioned" in the summary rather than properly structured.
+function filterSparseSignals(signals) {
+  return signals.filter(s => {
+    if (s.verdict === 'TAKE TRADE' && !s.entry && !s.stop) {
+      console.warn(`[Analyze] Dropping sparse signal ${s.ticker} — no entry/stop levels found`)
+      return false
+    }
+    return true
+  })
 }
 
 function parseSignalSection(section, ticker, name) {

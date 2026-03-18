@@ -165,6 +165,9 @@ export default function SwingCommitteeApp() {
   const [marketContextData, setMarketContextData] = useState(null);
   const [isLoadingMarketContext, setIsLoadingMarketContext] = useState(true);
   const [marketContextError, setMarketContextError] = useState(null);
+  const [calendarData, setCalendarData] = useState(null);
+  const [isLoadingCalendar, setIsLoadingCalendar] = useState(true);
+  const [calendarError, setCalendarError] = useState(null);
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
   const [suggestions, setSuggestions] = useState(null);
   const [suggestionsError, setSuggestionsError] = useState(null);
@@ -249,9 +252,25 @@ export default function SwingCommitteeApp() {
     }
   };
 
+  const fetchCalendar = async () => {
+    setIsLoadingCalendar(true);
+    setCalendarError(null);
+    try {
+      const response = await fetch('/api/calendar');
+      if (!response.ok) throw new Error('Failed to fetch calendar data');
+      const data = await response.json();
+      setCalendarData(data);
+    } catch (error) {
+      setCalendarError(error.message);
+    } finally {
+      setIsLoadingCalendar(false);
+    }
+  };
+
   useEffect(() => {
     fetchMarketPulse();
     fetchMarketContext();
+    fetchCalendar();
   }, []);
 
   // Reset all analysis-related state for a fresh start
@@ -650,6 +669,8 @@ export default function SwingCommitteeApp() {
             momentum5d: s.indicators?.momentum5d,
             priceVsMa20: s.indicators?.priceVsMa20,
           })),
+          // Day-1 Capture Module results (pre-scored, pass through to analyze)
+          dayTrades: scanResults.results?.dayTrades || { candidates: [], excluded: [], summary: {} },
         },
       } : null;
 
@@ -1218,6 +1239,124 @@ export default function SwingCommitteeApp() {
                       ({marketContextData.dataQuality.tier1Available}/{marketContextData.dataQuality.tier1Total} core)
                     </span>
                   )}
+                </div>
+              )}
+            </div>
+
+            {/* Financial Calendar */}
+            <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-6 text-white">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center">
+                    <Calendar className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-lg">Financial Calendar</h2>
+                    <p className="text-gray-400 text-sm">Next 2 weeks — economic events & earnings</p>
+                  </div>
+                </div>
+                <button
+                  onClick={fetchCalendar}
+                  disabled={isLoadingCalendar}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm text-gray-300 transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingCalendar ? 'animate-spin' : ''}`} />
+                  {isLoadingCalendar ? 'Loading...' : 'Refresh'}
+                </button>
+              </div>
+
+              {isLoadingCalendar && !calendarData ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="w-6 h-6 animate-spin text-amber-400" />
+                  <span className="ml-3 text-gray-400 text-sm">Fetching calendar data...</span>
+                </div>
+              ) : calendarError && !calendarData ? (
+                <div className="bg-amber-500/20 rounded-xl p-4 text-center">
+                  <p className="text-amber-300 text-sm">{calendarError}</p>
+                  <button onClick={fetchCalendar} className="mt-2 text-xs underline text-amber-200 hover:text-white">Try again</button>
+                </div>
+              ) : calendarData?.events?.length > 0 ? (
+                <div className="space-y-4 max-h-80 overflow-y-auto pr-1">
+                  {(() => {
+                    const grouped = {};
+                    calendarData.events.forEach(e => {
+                      const d = e.date;
+                      if (!grouped[d]) grouped[d] = [];
+                      grouped[d].push(e);
+                    });
+                    const today = new Date().toISOString().split('T')[0];
+                    return Object.entries(grouped)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([date, events]) => {
+                        const d = new Date(date + 'T00:00:00');
+                        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                        const label = `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
+                        const isTodayDate = date === today;
+                        // Sort: high-impact economic first, then medium economic, then earnings
+                        const sorted = events.sort((a, b) => {
+                          if (a.type !== b.type) return a.type === 'economic' ? -1 : 1;
+                          if (a.impact !== b.impact) return a.impact === 'high' ? -1 : 1;
+                          return 0;
+                        });
+                        return (
+                          <div key={date}>
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <span className="text-xs font-bold text-gray-400 uppercase tracking-wide">{label}</span>
+                              {isTodayDate && <span className="px-1.5 py-0.5 bg-blue-500 rounded text-[10px] font-bold">TODAY</span>}
+                            </div>
+                            <div className="space-y-1">
+                              {sorted.map((event, idx) => (
+                                <div key={idx} className="flex items-center gap-2.5 bg-white/5 hover:bg-white/10 rounded-lg px-3 py-2 transition-colors">
+                                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                                    event.type === 'earnings' ? 'bg-purple-400' :
+                                    event.impact === 'high' ? 'bg-red-400' : 'bg-amber-400'
+                                  }`} />
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
+                                    event.country === 'US' ? 'bg-blue-500/20 text-blue-300' :
+                                    (event.country === 'GB' || event.symbol?.endsWith('.L')) ? 'bg-red-500/20 text-red-300' :
+                                    event.country === 'EU' ? 'bg-yellow-500/20 text-yellow-300' :
+                                    event.country === 'JP' ? 'bg-pink-500/20 text-pink-300' :
+                                    event.country === 'AU' ? 'bg-green-500/20 text-green-300' :
+                                    'bg-gray-500/20 text-gray-300'
+                                  }`}>
+                                    {event.type === 'earnings'
+                                      ? (event.symbol?.endsWith('.L') ? 'UK' : 'US')
+                                      : (event.country === 'GB' ? 'UK' : event.country || '??')}
+                                  </span>
+                                  <span className={`text-sm flex-1 truncate ${
+                                    event.impact === 'high' ? 'text-white font-semibold' : 'text-gray-300'
+                                  }`}>
+                                    {event.type === 'earnings'
+                                      ? `${event.symbol} Earnings${event.hour === 'bmo' ? ' (Pre-mkt)' : event.hour === 'amc' ? ' (After-mkt)' : ''}`
+                                      : event.event}
+                                  </span>
+                                  {event.type === 'economic' && (event.estimate != null || event.prev != null) && (
+                                    <div className="flex gap-2 text-[11px] text-gray-500 flex-shrink-0">
+                                      {event.actual != null && <span className="text-white font-bold">Act: {event.actual}{event.unit}</span>}
+                                      {event.estimate != null && <span>Est: {event.estimate}{event.unit}</span>}
+                                      {event.prev != null && <span>Prev: {event.prev}{event.unit}</span>}
+                                    </div>
+                                  )}
+                                  {event.type === 'earnings' && event.epsEstimate != null && (
+                                    <span className="text-[11px] text-gray-500 flex-shrink-0">EPS est: ${event.epsEstimate}</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      });
+                  })()}
+                </div>
+              ) : calendarData ? (
+                <div className="text-center py-8 text-gray-500 text-sm">No events in the next 2 weeks</div>
+              ) : null}
+
+              {calendarData?.counts && (
+                <div className="mt-4 pt-3 border-t border-white/10 flex gap-4 text-xs text-gray-500">
+                  <span>{calendarData.counts.economic} economic events</span>
+                  <span>{calendarData.counts.earnings} earnings</span>
                 </div>
               )}
             </div>
@@ -2560,6 +2699,28 @@ Format: Ticker, Notes (we'll fetch live prices)"
                           </div>
                         </div>
 
+                        {/* Day-1 Capture Funnel */}
+                        {scanResults?.results?.dayTrades?.summary?.total_candidates_assessed > 0 && (
+                          <div className="mb-3">
+                            <div className="bg-indigo-50 rounded-lg p-3">
+                              <div className="text-sm text-indigo-800">
+                                <span className="font-medium">Day-1 Scored:</span>{' '}
+                                {scanResults.results.dayTrades.summary.total_candidates_assessed} assessed
+                                {' \u2192 '}
+                                <span className="font-bold text-green-700">{scanResults.results.dayTrades.summary.a_grade} A-GRADE</span>
+                                {', '}
+                                <span className="font-bold text-blue-700">{scanResults.results.dayTrades.summary.b_grade} B-GRADE</span>
+                                {scanResults.results.dayTrades.summary.excluded_low_score > 0 && (
+                                  <span className="text-gray-500">, {scanResults.results.dayTrades.summary.excluded_low_score} below threshold</span>
+                                )}
+                                {scanResults.summary?.vix != null && (
+                                  <span className="ml-2 text-xs text-indigo-500">VIX: {scanResults.summary.vix}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         {/* Direction Breakdown */}
                         <div className="mb-5">
                           <h3 className="text-sm font-semibold text-gray-700 mb-2">Direction Breakdown</h3>
@@ -2668,11 +2829,20 @@ Format: Ticker, Notes (we'll fetch live prices)"
                                 <p className="font-bold text-gray-900">{signal.ticker}</p>
                                 <p className="text-sm text-gray-500">
                                   {signal.setupType || signal.name || 'Swing Setup'}
-                                  {signal.grade && <span className="ml-2 font-medium">• Grade {signal.grade}</span>}
+                                  {signal.grade && !isDayTrade(signal) && <span className="ml-2 font-medium">• Grade {signal.grade}</span>}
                                   {isDayTrade(signal) && <span className="ml-2 text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">Intraday Only</span>}
                                 </p>
                               </div>
-                              {signal.pillarCount && (
+                              {/* Day trade tier badge */}
+                              {isDayTrade(signal) && signal.tier && (
+                                <span className={`px-2 py-1 text-xs font-bold rounded ${
+                                  signal.tier === 'A-GRADE' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'
+                                }`}>
+                                  {signal.tier} {signal.totalScore}/16
+                                </span>
+                              )}
+                              {/* Swing trade pillar count */}
+                              {!isDayTrade(signal) && signal.pillarCount && (
                                 <span className={`px-2 py-1 text-xs font-medium rounded ${
                                   signal.pillarCount >= 4 ? 'bg-green-100 text-green-700' :
                                   signal.pillarCount >= 3 ? 'bg-amber-100 text-amber-700' :
@@ -2736,7 +2906,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                                     <p className="font-bold text-gray-900">{signal.riskReward}</p>
                                   </div>
                                 )}
-                                {signal.pillarCount && (
+                                {!isDayTrade(signal) && signal.pillarCount && (
                                   <div>
                                     <p className="text-xs text-gray-500 uppercase">Pillar Count</p>
                                     <p className="font-bold text-gray-900">{signal.pillarCount}/6</p>
@@ -2749,6 +2919,44 @@ Format: Ticker, Notes (we'll fetch live prices)"
                                   </div>
                                 )}
                               </div>
+
+                              {/* Day-1 specific details */}
+                              {isDayTrade(signal) && signal.tier && (
+                                <div className="mt-3 pt-3 border-t border-gray-200">
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    <div>
+                                      <p className="text-xs text-gray-500 uppercase">Day-1 Score</p>
+                                      <p className="font-bold text-gray-900">{signal.totalScore}/16</p>
+                                    </div>
+                                    {signal.iATR && (
+                                      <div>
+                                        <p className="text-xs text-gray-500 uppercase">iATR</p>
+                                        <p className="font-bold text-gray-900">{signal.iATR}</p>
+                                      </div>
+                                    )}
+                                    {signal.entryType && (
+                                      <div>
+                                        <p className="text-xs text-gray-500 uppercase">Entry Type</p>
+                                        <p className="font-bold text-gray-900">{signal.entryType.replace(/_/g, ' ')}</p>
+                                      </div>
+                                    )}
+                                    {signal.vwapBias && (
+                                      <div>
+                                        <p className="text-xs text-gray-500 uppercase">VWAP</p>
+                                        <p className={`font-bold ${signal.vwapBias === 'ALIGNED' ? 'text-green-600' : signal.vwapBias === 'OPPOSED' ? 'text-red-600' : 'text-gray-600'}`}>{signal.vwapBias}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {signal.crabelEligible && (
+                                    <div className="mt-2 px-2 py-1 bg-green-50 border border-green-200 rounded text-xs text-green-700 font-medium">
+                                      Crabel Early Entry: ELIGIBLE
+                                    </div>
+                                  )}
+                                  <div className="mt-2 text-xs text-gray-500">
+                                    <span className="font-medium">Stop Progression:</span> BREAKEVEN at +0.25 iATR → LOCK at +0.35 → CLOSE at +0.45 → TARGET at +0.50
+                                  </div>
+                                </div>
+                              )}
 
                               {/* Show raw analysis section if available */}
                               {signal.rawSection && (
