@@ -3128,7 +3128,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                   <h3 className="font-bold text-gray-900 mb-3">Full Analysis Report</h3>
                   <div className="prose prose-sm max-w-none">
                     <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-4 rounded-lg overflow-auto max-h-[600px]">
-                      {analysisResult.fullAnalysis || 'No detailed analysis available.'}
+                      {(analysisResult.fullAnalysis || 'No detailed analysis available.').replace(/```json[\s\S]*?```/gi, '').trim()}
                     </pre>
                   </div>
                 </div>
