@@ -186,6 +186,7 @@ export default function SwingCommitteeApp() {
     // Permissions
     shortSellingAllowed: true,
     ukStocks: true,
+    ukStocks250: false,
     usStocks: true,
     indices: false,
     forex: false,
@@ -503,6 +504,7 @@ export default function SwingCommitteeApp() {
           mclPolicy: mclPolicyPayload,
           instruments: {
             ukStocks: formData.ukStocks,
+            ukStocks250: formData.ukStocks250,
             usStocks: formData.usStocks,
             indices: formData.indices,
             forex: formData.forex,
@@ -1447,7 +1449,8 @@ export default function SwingCommitteeApp() {
                 <p className="text-sm font-medium text-gray-700 mb-2">Instruments Allowed</p>
                 <div className="flex flex-wrap gap-2">
                   {[
-                    { key: 'ukStocks', label: 'UK Stocks' },
+                    { key: 'ukStocks', label: 'FTSE 100' },
+                    { key: 'ukStocks250', label: 'FTSE 250' },
                     { key: 'usStocks', label: 'US Stocks' },
                     { key: 'indices', label: 'Indices' },
                     { key: 'forex', label: 'Forex' },

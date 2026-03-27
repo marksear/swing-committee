@@ -32,7 +32,7 @@ export async function POST(request) {
       marketTrend = 'neutral',
       shortSellingAllowed = true,
       // Instrument filters - default to US and UK stocks for backwards compatibility
-      instruments = { ukStocks: true, usStocks: true, indices: false, forex: false, crypto: false },
+      instruments = { ukStocks: true, ukStocks250: false, usStocks: true, indices: false, forex: false, crypto: false },
       // Regime Gate data - benchmark status and distribution days (legacy fallback)
       regimeGate = { riskOn: true, benchmarkAbove50MA: true, distributionDays: 0 },
       // MCL Policy — auto-computed from Market Context Layer (replaces manual regime when present)
@@ -52,6 +52,7 @@ export async function POST(request) {
     let tickersToScan = []
     if (instruments.usStocks) tickersToScan = tickersToScan.concat(UNIVERSE.usStocks)
     if (instruments.ukStocks) tickersToScan = tickersToScan.concat(UNIVERSE.ukStocks)
+    if (instruments.ukStocks250) tickersToScan = tickersToScan.concat(UNIVERSE.ukStocks250)
     if (instruments.indices) tickersToScan = tickersToScan.concat(UNIVERSE.indices)
     if (instruments.forex) tickersToScan = tickersToScan.concat(UNIVERSE.forex)
     if (instruments.crypto) tickersToScan = tickersToScan.concat(UNIVERSE.crypto)
