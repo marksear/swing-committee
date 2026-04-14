@@ -65,7 +65,7 @@ export async function POST(request) {
 
     // Parse the response
     const responseText = message.content[0].text
-    const result = parseResponse(responseText)
+    const result = parseResponse(responseText, scannerResults)
 
     return Response.json(result)
   } catch (error) {
@@ -1029,7 +1029,8 @@ function buildScannerGateSection(scannerResults) {
   if (longs.length > 0) {
     section += `## SCANNER-APPROVED LONGS (these CAN be TAKE TRADE)\n`
     longs.forEach(s => {
-      section += `- ${s.ticker}: Score ${s.score?.toFixed(0)}%, Tier ${s.setupTier || '?'}, R:R ${s.tradeManagement?.riskRewardRatio || '?'}:1\n`
+      const nameStr = s.name && s.name !== s.ticker ? ` (${s.name})` : ''
+      section += `- ${s.ticker}${nameStr}: Score ${s.score?.toFixed(0)}%, Tier ${s.setupTier || '?'}, R:R ${s.tradeManagement?.riskRewardRatio || '?'}:1\n`
     })
     section += '\n'
   } else {
@@ -1039,7 +1040,8 @@ function buildScannerGateSection(scannerResults) {
   if (shorts.length > 0) {
     section += `## SCANNER-APPROVED SHORTS (these CAN be TAKE TRADE)\n`
     shorts.forEach(s => {
-      section += `- ${s.ticker}: Score ${s.score?.toFixed(0)}%, Tier ${s.setupTier || '?'}, R:R ${s.tradeManagement?.riskRewardRatio || '?'}:1\n`
+      const nameStr = s.name && s.name !== s.ticker ? ` (${s.name})` : ''
+      section += `- ${s.ticker}${nameStr}: Score ${s.score?.toFixed(0)}%, Tier ${s.setupTier || '?'}, R:R ${s.tradeManagement?.riskRewardRatio || '?'}:1\n`
     })
     section += '\n'
   } else {
@@ -1049,7 +1051,8 @@ function buildScannerGateSection(scannerResults) {
   if (watchlist.length > 0) {
     section += `## SCANNER WATCHLIST (WATCHLIST for swing — evaluate for DAY TRADE)\n`
     watchlist.forEach(s => {
-      section += `- ${s.ticker}: Score ${s.score?.toFixed(0)}%, Price ${s.price || '?'} (${s.currency || '?'})\n`
+      const nameStr = s.name && s.name !== s.ticker ? ` (${s.name})` : ''
+      section += `- ${s.ticker}${nameStr}: Score ${s.score?.toFixed(0)}%, Price ${s.price || '?'} (${s.currency || '?'})\n`
       if (s.nearestSupport) {
         section += `  Support: ${s.nearestSupport.level} (${s.nearestSupport.type}, ${s.nearestSupport.distanceR}R away)\n`
       }
@@ -1145,14 +1148,14 @@ function buildScannerGateSection(scannerResults) {
   return section
 }
 
-function parseResponse(responseText) {
+function parseResponse(responseText, scannerResults = null) {
   // First, try to extract structured JSON data (most reliable)
   const jsonData = extractJsonData(responseText)
 
   const result = {
     mode: jsonData?.committee || extractCommitteeStance(responseText),
     summary: jsonData?.summary || extractSummary(responseText),
-    signals: jsonData ? convertJsonToSignals(jsonData) : extractSignals(responseText),
+    signals: jsonData ? convertJsonToSignals(jsonData, scannerResults) : extractSignals(responseText),
     parsedPositions: jsonData?.positionReviews || [],
     positionSummary: jsonData?.positionSummary || null,
     marketRegime: extractSection(responseText, 'PART A', 'PART B') || extractSection(responseText, 'MARKET REGIME', 'PART B'),
@@ -1212,18 +1215,43 @@ function extractJsonData(text) {
 }
 
 // Convert JSON data to signals array format
-function convertJsonToSignals(jsonData) {
+function convertJsonToSignals(jsonData, scannerResults = null) {
   const signals = []
+
+  // Build authoritative ticker → company name lookup from scanner (Yahoo Finance data).
+  // This overrides any hallucinated company names the AI may have produced.
+  const tickerToName = new Map()
+  if (scannerResults?.results) {
+    const pools = [
+      scannerResults.results.long || [],
+      scannerResults.results.short || [],
+      scannerResults.results.watchlist || [],
+    ]
+    for (const pool of pools) {
+      for (const s of pool) {
+        if (!s?.ticker || !s?.name || s.name === s.ticker) continue
+        // Store under both full ticker (SMT.L) and stripped (SMT) for safe lookup
+        tickerToName.set(s.ticker, s.name)
+        tickerToName.set(s.ticker.replace('.L', ''), s.name)
+      }
+    }
+  }
+  const canonicalName = (ticker) => tickerToName.get(ticker) || tickerToName.get(ticker?.replace('.L', '')) || null
 
   // Convert trades to signals
   if (jsonData.trades && Array.isArray(jsonData.trades)) {
     for (const trade of jsonData.trades) {
+      // Override AI's company field with canonical scanner name (defense against hallucination)
+      const canonical = canonicalName(trade.ticker)
+      if (canonical && trade.tradeAnalysis) {
+        trade.tradeAnalysis.company = canonical
+      }
       // Build comprehensive rawSection from tradeAnalysis
       let rawSection = buildTradeAnalysisText(trade)
 
       signals.push({
         ticker: trade.ticker?.replace('.L', ''),
-        name: trade.ticker,
+        name: canonical || trade.ticker,
         direction: trade.direction?.toUpperCase() || 'LONG',
         verdict: 'TAKE TRADE',
         entry: trade.entry,
@@ -1241,12 +1269,17 @@ function convertJsonToSignals(jsonData) {
   // Convert watchlist items to signals
   if (jsonData.watchlist && Array.isArray(jsonData.watchlist)) {
     for (const item of jsonData.watchlist) {
+      // Override AI's company field with canonical scanner name
+      const canonical = canonicalName(item.ticker)
+      if (canonical) {
+        item.company = canonical
+      }
       // Build comprehensive rawSection for watchlist items
       let rawSection = buildWatchlistAnalysisText(item)
 
       signals.push({
         ticker: item.ticker?.replace('.L', ''),
-        name: item.ticker,
+        name: canonical || item.ticker,
         direction: 'WATCHLIST ONLY',
         verdict: 'WATCHLIST',
         entry: item.potentialEntry || null,
@@ -1264,11 +1297,15 @@ function convertJsonToSignals(jsonData) {
   // Convert day trades to signals (Day-1 Capture Module format)
   if (jsonData.dayTrades && Array.isArray(jsonData.dayTrades)) {
     for (const dt of jsonData.dayTrades) {
+      const canonical = canonicalName(dt.ticker)
+      if (canonical) {
+        dt.company = canonical
+      }
       let rawSection = buildDayTradeAnalysisText(dt)
 
       signals.push({
         ticker: dt.ticker?.replace('.L', ''),
-        name: dt.ticker,
+        name: canonical || dt.ticker,
         direction: dt.direction?.toUpperCase() || 'LONG',
         verdict: 'DAY TRADE',
         entry: dt.entry,
