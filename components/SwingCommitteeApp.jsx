@@ -523,19 +523,6 @@ export default function SwingCommitteeApp() {
       const data = await response.json();
       setScanResults(data);
 
-      // Save to Google Sheets
-      try {
-        const sheetsResponse = await fetch('/api/sheets', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'saveScanResults', data })
-        });
-        const sheetsResult = await sheetsResponse.json();
-        console.log('Scan results saved to sheets:', sheetsResult);
-      } catch (err) {
-        console.log('Sheets save skipped:', err.message);
-      }
-
     } catch (error) {
       setScanError(error.message);
     } finally {
@@ -701,18 +688,6 @@ export default function SwingCommitteeApp() {
       setAnalysisResult(result);
       setCurrentAnalysisStep(totalSteps - 1);
 
-      // Save trade signals to Google Sheets (fire and forget)
-      // Strip to only what appendTradeSignals needs — avoids sending fullAnalysis (20-50KB)
-      const sheetsPayload = {
-        signals: result.signals,
-        committeeStance: result.mode || '',
-      };
-      fetch('/api/sheets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'saveTradeSignals', data: sheetsPayload })
-      }).catch(err => console.log('Sheets save skipped:', err.message));
-
       setTimeout(() => {
         setIsAnalyzing(false);
         setAnalysisComplete(true);
@@ -730,6 +705,32 @@ export default function SwingCommitteeApp() {
     if (grade === 'A+' || grade === 'A') return 'bg-green-600';
     if (grade === 'B') return 'bg-amber-500';
     return 'bg-gray-400';
+  };
+
+  // Download the scan handoff JSON as a file the user can drop into
+  // entry-rules/money-program-trading/data/scans/. This is the only way to
+  // get the file onto the user's local disk when the app runs on Vercel —
+  // the serverless filesystem is ephemeral so server-side writes do not
+  // persist. The payload shape matches what session_init.py ingests.
+  const downloadScanJson = (scan) => {
+    if (!scan || scan.ok === false || !scan.filename) return;
+    const payload = {
+      schema_version: scan.schema_version,
+      scan_record: scan.scan_record,
+      shortlist_entries: scan.shortlist_entries,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = scan.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // Give the browser a tick to start the download before revoking.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   // Helper to check if signal is a NO TRADE
@@ -2619,6 +2620,34 @@ Format: Ticker, Notes (we'll fetch live prices)"
                     })()}
                   </div>
                 </div>
+
+                {/* Entry-rules handoff — download scan JSON for session_init.py */}
+                {analysisResult.scan?.ok && analysisResult.scan.shortlist_count > 0 && (
+                  <div className="mt-5 pt-4 border-t border-white/20 flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-blue-200 text-xs">
+                      <span className="font-semibold text-white">Entry-rules handoff:</span>{' '}
+                      {analysisResult.scan.shortlist_count} shortlist{' '}
+                      {analysisResult.scan.shortlist_count === 1 ? 'entry' : 'entries'}
+                      {' · '}
+                      <code className="bg-white/10 px-1.5 py-0.5 rounded text-[11px]">
+                        {analysisResult.scan.filename}
+                      </code>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => downloadScanJson(analysisResult.scan)}
+                      className="px-4 py-2 bg-white text-blue-900 rounded-lg hover:bg-blue-50 transition-colors text-sm font-semibold whitespace-nowrap"
+                      title="Save to entry-rules/money-program-trading/data/scans/"
+                    >
+                      Download scan JSON
+                    </button>
+                  </div>
+                )}
+                {analysisResult.scan?.ok === false && (
+                  <div className="mt-5 pt-4 border-t border-white/20 text-amber-300 text-xs">
+                    Scan handoff build failed: {analysisResult.scan.error || 'unknown error'}
+                  </div>
+                )}
               </div>
 
               {/* Report Tabs */}

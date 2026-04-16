@@ -22,7 +22,7 @@
     "verdict": {
       "type": "string",
       "enum": ["TAKE TRADE", "WATCHLIST", "DAY TRADE"],
-      "description": "Signal classification. Determines how the signal is displayed in the UI and recorded in Google Sheets."
+      "description": "Signal classification. Determines how the signal is displayed in the UI and written to the data/trades.json + data/scans/scan_YYYYMMDD.json handoff artifacts."
     },
     "entry": {
       "type": ["string", "null"],

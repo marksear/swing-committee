@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { LOG_SCHEMA_VERSION, buildScanPayload } from '@/lib/scanEmission'
 
 // Allow up to 120s on Vercel Pro (default is 10s on Hobby)
 export const maxDuration = 300
@@ -66,6 +67,47 @@ export async function POST(request) {
     // Parse the response
     const responseText = message.content[0].text
     const result = parseResponse(responseText, scannerResults)
+
+    // ------------------------------------------------------------------
+    // Build the scan handoff payload and return it IN THE RESPONSE.
+    //
+    // Vercel's serverless filesystem is ephemeral + mostly read-only, so we
+    // don't try to write to disk server-side. Instead the client receives
+    // `result.scan` and renders a "Download scan JSON" button — the user
+    // saves it to entry-rules/money-program-trading/data/scans/ manually.
+    //
+    // `buildScanPayload` is a pure transform (no I/O), so it is safe to call
+    // in any runtime. Errors here are reported as `result.scan.error` and do
+    // not fail the analysis response.
+    // ------------------------------------------------------------------
+    try {
+      const now = new Date()
+      const { scanRecord, shortlistEntries } = buildScanPayload({
+        formData,
+        scannerResults,
+        analysisResult: result,
+        ruleSetVersion: process.env.RULE_SET_VERSION || '',
+        now,
+      })
+      const ymd = now.toISOString().slice(0, 10).replace(/-/g, '')
+      result.scan = {
+        ok: true,
+        schema_version: LOG_SCHEMA_VERSION,
+        filename: `scan_${ymd}.json`,
+        scan_id: scanRecord.scan_id,
+        shortlist_count: shortlistEntries.length,
+        // The two top-level fields that make up the handoff file exactly as
+        // entry-rules' session_init.py will read it back:
+        scan_record: scanRecord,
+        shortlist_entries: shortlistEntries,
+      }
+      console.log(
+        `[Analyze] Built scan ${result.scan.filename} — ${shortlistEntries.length} shortlist entries`
+      )
+    } catch (scanError) {
+      console.error('[Analyze] Scan payload build failed:', scanError)
+      result.scan = { ok: false, error: scanError.message }
+    }
 
     return Response.json(result)
   } catch (error) {
