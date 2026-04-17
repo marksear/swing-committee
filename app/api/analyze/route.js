@@ -82,7 +82,7 @@ export async function POST(request) {
     // ------------------------------------------------------------------
     try {
       const now = new Date()
-      const { scanRecord, shortlistEntries, bypassCandidateEntries } = buildScanPayload({
+      const { scanRecord, shortlistEntries, bypassCandidateEntries } = await buildScanPayload({
         formData,
         scannerResults,
         analysisResult: result,
