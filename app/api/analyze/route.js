@@ -1326,10 +1326,36 @@ function convertJsonToSignals(jsonData, scannerResults = null) {
       // Build comprehensive rawSection for watchlist items
       let rawSection = buildWatchlistAnalysisText(item)
 
+      // Direction: prefer the LLM's explicit field. If absent, infer from
+      // the stop vs entry-zone relationship (stop below = LONG, stop above =
+      // SHORT). This keeps bypass downloads working — the emitter in
+      // lib/scanEmission.js rejects any signal whose direction isn't LONG or
+      // SHORT, and a hardcoded 'WATCHLIST ONLY' string used to drain the
+      // bypass pool on days when only WATCHLIST verdicts were produced.
+      const inferDirection = () => {
+        if (typeof item.direction === 'string') {
+          const d = item.direction.toUpperCase()
+          if (d === 'LONG' || d === 'SHORT') return d
+        }
+        const entry = item.potentialEntry
+        const stop = typeof item.potentialStop === 'number'
+          ? item.potentialStop
+          : parseFloat(String(item.potentialStop ?? '').replace(/[£$,]/g, ''))
+        if (!Number.isFinite(stop) || entry == null) return 'LONG'
+        const nums = String(entry).replace(/[£$,]/g, '').match(/-?\d+\.?\d*/g) || []
+        const zoneVals = nums.map(Number).filter(Number.isFinite)
+        if (zoneVals.length === 0) return 'LONG'
+        const zoneLow = Math.min(...zoneVals)
+        const zoneHigh = Math.max(...zoneVals)
+        if (stop < zoneLow) return 'LONG'
+        if (stop > zoneHigh) return 'SHORT'
+        return 'LONG'
+      }
+
       signals.push({
         ticker: item.ticker?.replace('.L', ''),
         name: canonical || item.ticker,
-        direction: 'WATCHLIST ONLY',
+        direction: inferDirection(),
         verdict: 'WATCHLIST',
         entry: item.potentialEntry || null,
         stop: item.potentialStop || null,
