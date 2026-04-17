@@ -82,7 +82,7 @@ export async function POST(request) {
     // ------------------------------------------------------------------
     try {
       const now = new Date()
-      const { scanRecord, shortlistEntries } = buildScanPayload({
+      const { scanRecord, shortlistEntries, bypassCandidateEntries } = buildScanPayload({
         formData,
         scannerResults,
         analysisResult: result,
@@ -100,9 +100,16 @@ export async function POST(request) {
         // entry-rules' session_init.py will read it back:
         scan_record: scanRecord,
         shortlist_entries: shortlistEntries,
+        // Parallel bypass-eligible entries. Includes every gradable (A+/A/B)
+        // signal regardless of verdict — WATCHLIST + TAKE-TRADE + DAY-TRADE.
+        // Frontend filters this down to the user's 1–3 hand-picked bypass
+        // tickers, then stamps gate_bypass:true + bypass_until on the scan
+        // record before downloading. Not used on non-bypass runs.
+        bypass_candidate_entries: bypassCandidateEntries ?? [],
+        bypass_candidate_count: (bypassCandidateEntries ?? []).length,
       }
       console.log(
-        `[Analyze] Built scan ${result.scan.filename} — ${shortlistEntries.length} shortlist entries`
+        `[Analyze] Built scan ${result.scan.filename} — ${shortlistEntries.length} shortlist entries, ${(bypassCandidateEntries ?? []).length} bypass-eligible`
       )
     } catch (scanError) {
       console.error('[Analyze] Scan payload build failed:', scanError)

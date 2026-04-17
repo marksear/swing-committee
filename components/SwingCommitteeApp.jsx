@@ -757,26 +757,61 @@ export default function SwingCommitteeApp() {
     return d.toISOString().slice(0, 10);
   };
 
-  // Is a signal ineligible for bypass selection? Grade D (or no grade) is a
-  // floor rule Mark set — D-grade setups aren't worth the mechanics test.
+  // Is a signal eligible for bypass selection? Must have a grade in the risk
+  // ladder (A+/A/B). Grade C and D are excluded because lib/scanEmission.js's
+  // GRADE_TO_RISK_PCT table only sizes A+/A/B — a C selection would silently
+  // drop from the built bypass payload. Keeping the UI in lockstep with the
+  // risk ladder prevents that surprise.
   const isBypassEligible = (signal) => {
     if (!signal || !signal.grade) return false;
     const g = String(signal.grade).toUpperCase();
-    return g === 'A+' || g === 'A' || g === 'B' || g === 'C';
+    return g === 'A+' || g === 'A' || g === 'B';
   };
 
-  // Build + download the bypass-flavoured scan JSON. Filters the already-built
-  // ScanRecord / shortlist to just the selected tickers and stamps the
-  // gate_bypass fields on at the top level of scan_record.
+  // Build + download the bypass-flavoured scan JSON.
+  //
+  // Filters the server-built `bypass_candidate_entries` (every gradable signal,
+  // not just TAKE-TRADE — see lib/scanEmission.js) down to the user's 1–3
+  // picks, stamps `gate_bypass: true` + `bypass_until` on the scan_record,
+  // and triggers a browser download. The ingester on the entry-rules side
+  // refuses bypass payloads on LIVE or with expired bypass_until dates.
+  //
+  // Diagnostic logging (visible in DevTools → Console) so any future silent
+  // fail surfaces with a reason instead of a no-op. Each early-return below
+  // is a distinct bug class; collapsing them to one console.warn family makes
+  // the failure visible without breaking the non-DevTools user.
   const downloadBypassScanJson = (scan, tickerSet, bypassUntil) => {
-    if (!scan || scan.ok === false || !scan.filename) return;
-    if (!tickerSet || tickerSet.size === 0) return;
+    if (!scan || scan.ok === false || !scan.filename) {
+      console.warn('[bypass] no scan on analysisResult — run a scan first', { scan });
+      return;
+    }
+    if (!tickerSet || tickerSet.size === 0) {
+      console.warn('[bypass] no tickers selected');
+      return;
+    }
 
     const upper = new Set([...tickerSet].map((t) => String(t).toUpperCase()));
-    const filteredShortlist = (scan.shortlist_entries || []).filter((e) =>
+
+    // Prefer the bypass-eligible pool (all gradable verdicts). Fall back to
+    // the narrow shortlist for old scan payloads that pre-date the
+    // bypass_candidate_entries field — lets cached analyses still work.
+    const pool =
+      (Array.isArray(scan.bypass_candidate_entries) && scan.bypass_candidate_entries.length > 0
+        ? scan.bypass_candidate_entries
+        : scan.shortlist_entries) || [];
+
+    const filteredShortlist = pool.filter((e) =>
       upper.has(String(e.symbol).toUpperCase()),
     );
-    if (filteredShortlist.length === 0) return;
+
+    if (filteredShortlist.length === 0) {
+      console.warn(
+        '[bypass] selected tickers matched nothing in the bypass pool — ' +
+          'likely an ungradable signal or a zone/stop the emitter rejected',
+        { selected: [...upper], poolSymbols: pool.map((e) => e.symbol) },
+      );
+      return;
+    }
 
     const bypassScanRecord = {
       ...scan.scan_record,
@@ -805,6 +840,9 @@ export default function SwingCommitteeApp() {
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+    console.log(
+      `[bypass] downloaded ${bypassName} — ${filteredShortlist.length} entries, bypass_until=${bypassUntil}`,
+    );
   };
 
   const toggleSignalSelection = (ticker, signal) => {
