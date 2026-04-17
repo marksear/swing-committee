@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   TrendingUp, TrendingDown, Shield, Brain, ChevronRight, ChevronLeft,
   Check, AlertCircle, Loader2, Target, Zap, Rocket, BarChart2,
-  Newspaper, ChevronDown, Activity, Clock, DollarSign, ShieldAlert,
+  Newspaper, Activity, Clock, DollarSign, ShieldAlert,
   ArrowUpRight, ArrowDownRight, Crosshair, LineChart, BarChart3,
   AlertTriangle, Eye, Scale, Flame, Gauge, Calendar, BookOpen, Lightbulb,
   XCircle, RefreshCw, Sparkles, Globe
@@ -153,9 +153,7 @@ export default function SwingCommitteeApp() {
   const [analysisError, setAnalysisError] = useState(null);
   const [showUKSources, setShowUKSources] = useState(false);
   const [showUSSources, setShowUSSources] = useState(false);
-  const [expandedSignal, setExpandedSignal] = useState(null);
   const [expandedPosition, setExpandedPosition] = useState(null);
-  const [activeReportTab, setActiveReportTab] = useState('summary');
   const [watchlistPrices, setWatchlistPrices] = useState({});
   const [isFetchingPrices, setIsFetchingPrices] = useState(false);
   const [priceError, setPriceError] = useState(null);
@@ -313,8 +311,6 @@ export default function SwingCommitteeApp() {
     }));
 
     // Reset UI state
-    setExpandedSignal(null);
-    setActiveReportTab('summary');
     setShowUKSources(false);
     setShowUSSources(false);
   };
@@ -905,43 +901,10 @@ export default function SwingCommitteeApp() {
     return null;
   };
 
-  const getSignalBoxColor = (signal) => {
-    // NO TRADE = should not be shown (filtered out)
-    if (isNoTrade(signal)) return 'bg-red-500';
-    // DAY TRADE = indigo
-    if (isDayTrade(signal)) return 'bg-indigo-600';
-    // WATCHLIST = orange
-    if (isWatchlist(signal)) return 'bg-orange-500';
-    // TAKE TRADE with direction
-    const tradeDir = getTradeDirection(signal);
-    if (tradeDir === 'LONG') return 'bg-green-600';
-    if (tradeDir === 'SHORT') return 'bg-red-600';
-    // Fallback
-    return 'bg-gray-400';
-  };
-
-  const getSignalBoxLabel = (signal) => {
-    // NO TRADE = should not be shown
-    if (isNoTrade(signal)) return '✕';
-    // DAY TRADE = D
-    if (isDayTrade(signal)) return 'D';
-    // WATCHLIST = W
-    if (isWatchlist(signal)) return 'W';
-    // TAKE TRADE with direction
-    const tradeDir = getTradeDirection(signal);
-    if (tradeDir === 'LONG') return 'L';
-    if (tradeDir === 'SHORT') return 'S';
-    // Fallback
-    return '?';
-  };
-
-  const getVerdictColor = (verdict) => {
-    if (!verdict) return 'bg-gray-100 text-gray-600';
-    if (verdict === 'TAKE TRADE') return 'bg-green-100 text-green-700';
-    if (verdict === 'DAY TRADE') return 'bg-indigo-100 text-indigo-700';
-    if (verdict === 'WATCHLIST') return 'bg-amber-100 text-amber-700';
-    return 'bg-gray-100 text-gray-600';
-  };
+  // getSignalBoxColor / getSignalBoxLabel / getVerdictColor removed —
+  // they powered the old expandable signal cards. The lean-scan table
+  // uses inline grade/direction badges instead (see CandidatesTable
+  // render below).
 
   const renderStep = () => {
     switch (step) {
@@ -2778,194 +2741,10 @@ Format: Ticker, Notes (we'll fetch live prices)"
                 )}
               </div>
 
-              {/* Report Tabs */}
-              <div className="flex gap-2 border-b border-gray-200 overflow-x-auto">
-                {[
-                  { id: 'summary', label: 'Summary' },
-                  { id: 'signals', label: 'Trade Signals' },
-                  { id: 'openpositions', label: 'Open Positions' },
-                  { id: 'full', label: 'Full Report' },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveReportTab(tab.id)}
-                    className={`px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                      activeReportTab === tab.id
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+              {/* Lean-scan: tab navigation + Summary/Open Positions/Full Report
+                  tabs removed. Only the Trade Signals view remains, rendered
+                  unconditionally below. */}
 
-              {/* Tab Content */}
-              {activeReportTab === 'summary' && (() => {
-                const sysSummary = systemSummary
-                const regimeColors = { GREEN: 'text-green-600', YELLOW: 'text-amber-600', RED: 'text-red-600' }
-                const regimeBgColors = { GREEN: 'bg-green-50 border-green-200', YELLOW: 'bg-amber-50 border-amber-200', RED: 'bg-red-50 border-red-200' }
-
-                return (
-                <div className="space-y-6">
-                  {/* System Status Summary */}
-                  <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                    <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                      <Activity className="w-5 h-5 text-blue-600" />
-                      System Status
-                    </h2>
-
-                    {/* TL;DR */}
-                    {sysSummary ? (
-                      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5">
-                        <p className="text-xs font-medium text-blue-600 uppercase tracking-wider mb-1">TL;DR</p>
-                        <p className="text-gray-800 leading-relaxed">{sysSummary.tldr}</p>
-                      </div>
-                    ) : (
-                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5">
-                        <p className="text-gray-500">Run the scanner to see system status.</p>
-                      </div>
-                    )}
-
-                    {sysSummary?.funnel && (
-                      <>
-                        {/* Pipeline Funnel */}
-                        <div className="mb-5">
-                          <h3 className="text-sm font-semibold text-gray-700 mb-2">Pipeline Funnel</h3>
-                          <div className="bg-gray-50 rounded-lg p-3">
-                            <div className="inline-grid grid-cols-[auto_auto_auto_auto_auto_auto_auto] items-center gap-x-1.5 text-sm">
-                              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-mono font-medium text-center">{sysSummary.funnel.universe}</span>
-                              <span className="text-gray-400 text-center">{'\u2192'}</span>
-                              <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-mono text-center">
-                                {sysSummary.funnel.stage1.passed} <span className="text-purple-400 text-xs">({sysSummary.funnel.stage1.passRate})</span>
-                              </span>
-                              <span className="text-gray-400 text-center">{'\u2192'}</span>
-                              <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-mono text-center">
-                                {sysSummary.funnel.stage2.passed} <span className="text-amber-400 text-xs">({sysSummary.funnel.stage2.passRate})</span>
-                              </span>
-                              <span className="text-gray-400 text-center">{'\u2192'}</span>
-                              <span className={`px-2 py-0.5 rounded font-mono text-center ${sysSummary.funnel.stage3.passed > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                {sysSummary.funnel.stage3.passed} <span className={`text-xs ${sysSummary.funnel.stage3.passed > 0 ? 'text-green-400' : 'text-red-400'}`}>({sysSummary.funnel.stage3.passRate})</span>
-                              </span>
-                              {/* Labels row — same grid, aligned under boxes */}
-                              <span className="text-gray-400 text-xs text-center mt-0.5">Universe</span>
-                              <span></span>
-                              <span className="text-gray-400 text-xs text-center mt-0.5">Direction</span>
-                              <span></span>
-                              <span className="text-gray-400 text-xs text-center mt-0.5">S/R</span>
-                              <span></span>
-                              <span className="text-gray-400 text-xs text-center mt-0.5">Regime</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Day-1 Capture Funnel */}
-                        {scanResults?.results?.dayTrades?.summary?.total_candidates_assessed > 0 && (
-                          <div className="mb-3">
-                            <div className="bg-indigo-50 rounded-lg p-3">
-                              <div className="text-sm text-indigo-800">
-                                <span className="font-medium">Day-1 Scored:</span>{' '}
-                                {scanResults.results.dayTrades.summary.total_candidates_assessed} assessed
-                                {' \u2192 '}
-                                <span className="font-bold text-green-700">{scanResults.results.dayTrades.summary.a_grade} A-GRADE</span>
-                                {', '}
-                                <span className="font-bold text-blue-700">{scanResults.results.dayTrades.summary.b_grade} B-GRADE</span>
-                                {scanResults.results.dayTrades.summary.excluded_low_score > 0 && (
-                                  <span className="text-gray-500">, {scanResults.results.dayTrades.summary.excluded_low_score} below threshold</span>
-                                )}
-                                {scanResults.summary?.vix != null && (
-                                  <span className="ml-2 text-xs text-indigo-500">VIX: {scanResults.summary.vix}</span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Direction Breakdown */}
-                        <div className="mb-5">
-                          <h3 className="text-sm font-semibold text-gray-700 mb-2">Direction Breakdown</h3>
-                          <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm text-gray-700">
-                            {sysSummary.bottleneck && (
-                              <p>{sysSummary.bottleneck}</p>
-                            )}
-                            {sysSummary.directionExplanation && (
-                              <p className="text-gray-500 text-xs">{sysSummary.directionExplanation}</p>
-                            )}
-                            {sysSummary.closestCandidates && (
-                              <p className="text-xs font-medium text-amber-700 bg-amber-50 rounded px-2 py-1 inline-block mt-1">{sysSummary.closestCandidates}</p>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Regime Gate Detail */}
-                        <div>
-                          <h3 className="text-sm font-semibold text-gray-700 mb-2">Regime Gate</h3>
-                          <div className="grid grid-cols-2 gap-3">
-                            {[
-                              { flag: '\uD83C\uDDEC\uD83C\uDDE7', label: 'UK', detail: sysSummary.regimeDetail.uk },
-                              { flag: '\uD83C\uDDFA\uD83C\uDDF8', label: 'US', detail: sysSummary.regimeDetail.us }
-                            ].map(({ flag, label, detail }) => (
-                              <div key={label} className={`rounded-lg border p-3 ${regimeBgColors[detail.regime] || 'bg-gray-50 border-gray-200'}`}>
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className={`font-bold text-sm ${regimeColors[detail.regime] || 'text-gray-700'}`}>
-                                    {flag} {label} {detail.regime}
-                                  </span>
-                                  <span className="text-xs text-gray-500">{detail.riskOn ? 'Risk-On' : 'Risk-Off'}</span>
-                                </div>
-                                <p className="text-xs text-gray-600">
-                                  L {detail.longSize.toFixed(2)}x / S {detail.shortSize.toFixed(2)}x
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                          {sysSummary.thresholds && (
-                            <p className="text-xs text-gray-500 mt-2">
-                              Thresholds: Longs {'\u2265'}{sysSummary.thresholds.long?.score}% {sysSummary.thresholds.long?.pillars}/6 pillars
-                              {' \u2022 '}
-                              Shorts {'\u2265'}{sysSummary.thresholds.short?.score}% {sysSummary.thresholds.short?.pillars}/6 pillars
-                            </p>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* AI Executive Summary (if available) */}
-                  {analysisResult.summary && (
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                      <h2 className="text-lg font-bold text-gray-900 mb-4">AI Analysis</h2>
-                      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                        <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">
-                          {analysisResult.summary}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Chair's Decision */}
-                  {analysisResult.chairDecision && (
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                      <h3 className="font-bold text-gray-900 mb-3">Chair's Decision</h3>
-                      <div className="prose prose-sm max-w-none">
-                        <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-4 rounded-lg overflow-auto">
-                          {analysisResult.chairDecision}
-                        </pre>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Pillar Reminder */}
-                  {analysisResult.pillarReminder && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                      <h3 className="font-medium text-amber-900 mb-2">Wisdom from the Masters</h3>
-                      <p className="text-amber-800 italic whitespace-pre-wrap">{analysisResult.pillarReminder}</p>
-                    </div>
-                  )}
-                </div>
-                )
-              })()}
-
-              {activeReportTab === 'signals' && (
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                   <div className="p-4 border-b border-gray-100">
                     <h2 className="font-bold text-gray-900">Trade Signals</h2>
@@ -3019,207 +2798,129 @@ Format: Ticker, Notes (we'll fetch live prices)"
                     )}
                   </div>
 
-                  {analysisResult.signals && analysisResult.signals.length > 0 ? (
-                    <div>
-                      {analysisResult.signals
-                        .filter(signal => !isNoTrade(signal) && signal.ticker && !signal.ticker.includes('REQUEST') && !signal.ticker.includes('NEEDED') && !signal.ticker.includes('TBD'))
-                        .map((signal, index) => {
-                          const ticker = signal.ticker;
-                          const isSelected = selectedSignals.has(ticker);
-                          const eligibleForBypass = isBypassEligible(signal);
-                          const atCap = selectedSignals.size >= BYPASS_MAX_SELECTIONS && !isSelected;
-                          const checkboxDisabled = !bypassEnabled || !eligibleForBypass || atCap;
-                          return (
-                        <div key={index} className={`border-b border-gray-100 last:border-b-0 ${isSelected ? 'bg-amber-50/60' : ''}`} style={{ contentVisibility: 'auto', containIntrinsicSize: '0 72px' }}>
-                          <div className="w-full p-4 flex items-center justify-between hover:bg-gray-50">
-                            <div className="flex items-center gap-4">
-                              {bypassEnabled && (
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  disabled={checkboxDisabled}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    toggleSignalSelection(ticker, signal);
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  title={
-                                    !eligibleForBypass
-                                      ? 'Grade-D or ungraded signals can\'t be selected'
-                                      : atCap
-                                        ? `Max ${BYPASS_MAX_SELECTIONS} selected`
-                                        : 'Select for mechanics-test execution'
-                                  }
-                                  className="w-5 h-5 rounded border-gray-400 text-amber-600 focus:ring-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
-                                />
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => setExpandedSignal(expandedSignal === ticker ? null : ticker)}
-                                className="flex items-center gap-4 flex-1 text-left"
-                              >
-                              <div className={`w-12 h-12 ${getSignalBoxColor(signal)} rounded-xl flex items-center justify-center text-white font-bold text-xl`}>
-                                {getSignalBoxLabel(signal)}
-                              </div>
-                              <div className="text-left">
-                                <p className="font-bold text-gray-900">{signal.ticker}</p>
-                                <p className="text-sm text-gray-500">
-                                  {signal.setupType || signal.name || 'Swing Setup'}
-                                  {signal.grade && !isDayTrade(signal) && <span className="ml-2 font-medium">• Grade {signal.grade}</span>}
-                                  {isDayTrade(signal) && <span className="ml-2 text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-medium">Intraday Only</span>}
-                                </p>
-                              </div>
-                              {/* Day trade tier badge */}
-                              {isDayTrade(signal) && signal.tier && (
-                                <span className={`px-2 py-1 text-xs font-bold rounded ${
-                                  signal.tier === 'A-GRADE' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'
-                                }`}>
-                                  {signal.tier} {signal.totalScore}/16
-                                </span>
-                              )}
-                              {/* Swing trade pillar count */}
-                              {!isDayTrade(signal) && signal.pillarCount && (
-                                <span className={`px-2 py-1 text-xs font-medium rounded ${
-                                  signal.pillarCount >= 4 ? 'bg-green-100 text-green-700' :
-                                  signal.pillarCount >= 3 ? 'bg-amber-100 text-amber-700' :
-                                  'bg-gray-100 text-gray-600'
-                                }`}>
-                                  {signal.pillarCount}/6 Pillars
-                                </span>
-                              )}
-                              {signal.verdict && (
-                                <span className={`px-2 py-1 text-xs font-medium rounded ${getVerdictColor(signal.verdict)}`}>
-                                  {signal.verdict}
-                                </span>
-                              )}
-                              </button>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setExpandedSignal(expandedSignal === ticker ? null : ticker)}
-                              className="flex items-center gap-4"
-                            >
-                              <div className="text-right">
-                                {signal.entry && <p className="font-bold text-gray-900">Entry: {signal.entry}</p>}
-                                {signal.stop && <p className="text-sm text-gray-500">Stop: {signal.stop}</p>}
-                              </div>
-                              <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${expandedSignal === signal.ticker ? 'rotate-180' : ''}`} />
-                            </button>
-                          </div>
+                  {/* Lean-scan: compact candidates table.
+                      Expandable cards removed. Columns per docs/lean_scan_spec.md §4.4.
+                      Sort order: grade descending (A+ first), then ticker alpha. */}
+                  {(() => {
+                    const gradeOrder = { 'A+': 0, A: 1, B: 2, C: 3, D: 4 }
+                    const tradeable = (analysisResult.signals || [])
+                      .filter(s => !isNoTrade(s) && s.ticker && !s.ticker.includes('REQUEST') && !s.ticker.includes('NEEDED') && !s.ticker.includes('TBD'))
+                      .slice()
+                      .sort((a, b) => {
+                        const ga = gradeOrder[a.grade] ?? 99
+                        const gb = gradeOrder[b.grade] ?? 99
+                        if (ga !== gb) return ga - gb
+                        return (a.ticker || '').localeCompare(b.ticker || '')
+                      })
 
-                          {/* Expanded signal details */}
-                          {expandedSignal === ticker && (
-                            <div className="px-4 pb-4 bg-gray-50 border-t border-gray-100">
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-4">
-                                {signal.grade && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">Grade</p>
-                                    <p className="font-bold text-gray-900">{signal.grade}</p>
-                                  </div>
-                                )}
-                                {signal.direction && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">Direction</p>
-                                    <p className="font-bold text-gray-900">{signal.direction}</p>
-                                  </div>
-                                )}
-                                {signal.entry && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">Entry Zone</p>
-                                    <p className="font-bold text-gray-900">{signal.entry}</p>
-                                  </div>
-                                )}
-                                {signal.stop && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">Stop Loss</p>
-                                    <p className="font-bold text-red-600">{signal.stop}</p>
-                                  </div>
-                                )}
-                                {signal.target && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">Target</p>
-                                    <p className="font-bold text-green-600">{signal.target}</p>
-                                  </div>
-                                )}
-                                {signal.riskReward && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">Risk:Reward</p>
-                                    <p className="font-bold text-gray-900">{signal.riskReward}</p>
-                                  </div>
-                                )}
-                                {!isDayTrade(signal) && signal.pillarCount && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">Pillar Count</p>
-                                    <p className="font-bold text-gray-900">{signal.pillarCount}/6</p>
-                                  </div>
-                                )}
-                                {signal.setupType && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">Setup Type</p>
-                                    <p className="font-bold text-gray-900">{signal.setupType}</p>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Day-1 specific details */}
-                              {isDayTrade(signal) && signal.tier && (
-                                <div className="mt-3 pt-3 border-t border-gray-200">
-                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                    <div>
-                                      <p className="text-xs text-gray-500 uppercase">Day-1 Score</p>
-                                      <p className="font-bold text-gray-900">{signal.totalScore}/16</p>
-                                    </div>
-                                    {signal.iATR && (
-                                      <div>
-                                        <p className="text-xs text-gray-500 uppercase">iATR</p>
-                                        <p className="font-bold text-gray-900">{signal.iATR}</p>
-                                      </div>
-                                    )}
-                                    {signal.entryType && (
-                                      <div>
-                                        <p className="text-xs text-gray-500 uppercase">Entry Type</p>
-                                        <p className="font-bold text-gray-900">{signal.entryType.replace(/_/g, ' ')}</p>
-                                      </div>
-                                    )}
-                                    {signal.vwapBias && (
-                                      <div>
-                                        <p className="text-xs text-gray-500 uppercase">VWAP</p>
-                                        <p className={`font-bold ${signal.vwapBias === 'ALIGNED' ? 'text-green-600' : signal.vwapBias === 'OPPOSED' ? 'text-red-600' : 'text-gray-600'}`}>{signal.vwapBias}</p>
-                                      </div>
-                                    )}
-                                  </div>
-                                  {signal.crabelEligible && (
-                                    <div className="mt-2 px-2 py-1 bg-green-50 border border-green-200 rounded text-xs text-green-700 font-medium">
-                                      Crabel Early Entry: ELIGIBLE
-                                    </div>
-                                  )}
-                                  <div className="mt-2 text-xs text-gray-500">
-                                    <span className="font-medium">Stop Progression:</span> BREAKEVEN at +0.25 iATR → LOCK at +0.35 → CLOSE at +0.45 → TARGET at +0.50
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Show raw analysis section if available */}
-                              {signal.rawSection && (
-                                <div className="mt-3 pt-3 border-t border-gray-200">
-                                  <p className="text-xs text-gray-500 uppercase mb-2">Full Analysis</p>
-                                  <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-white p-3 rounded-lg overflow-auto max-h-64">
-                                    {signal.rawSection}
-                                  </pre>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                    if (tradeable.length === 0) {
+                      return (
+                        <div className="p-8 text-center text-gray-500">
+                          <p>No actionable trade signals found.</p>
                         </div>
-                          );
-                        })}
-                    </div>
-                  ) : (
-                    <div className="p-8 text-center text-gray-500">
-                      <p>No actionable trade signals found. All tickers were marked as NO TRADE.</p>
-                      <p className="text-sm mt-2">Check the Full Report for detailed analysis of each ticker.</p>
-                    </div>
-                  )}
+                      )
+                    }
+
+                    const fmtTrigger = (s) => {
+                      if (typeof s.trigger_low === 'number' && typeof s.trigger_high === 'number') {
+                        const lo = s.trigger_low
+                        const hi = s.trigger_high
+                        return lo === hi ? lo.toFixed(2) : `${lo.toFixed(2)}–${hi.toFixed(2)}`
+                      }
+                      if (s.entry && typeof s.entry === 'object') {
+                        const lo = s.entry.low
+                        const hi = s.entry.high ?? s.entry.low
+                        if (typeof lo === 'number') {
+                          return lo === hi ? lo.toFixed(2) : `${lo.toFixed(2)}–${(hi ?? lo).toFixed(2)}`
+                        }
+                      }
+                      return s.entry ?? '—'
+                    }
+                    const fmtNum = (v) => {
+                      if (typeof v === 'number') return v.toFixed(2)
+                      return v ?? '—'
+                    }
+                    const gradeClass = (g) => {
+                      if (g === 'A+') return 'bg-emerald-600 text-white'
+                      if (g === 'A') return 'bg-green-600 text-white'
+                      if (g === 'B') return 'bg-amber-500 text-white'
+                      if (g === 'C') return 'bg-gray-400 text-white'
+                      if (g === 'D') return 'bg-red-500 text-white'
+                      return 'bg-gray-200 text-gray-600'
+                    }
+                    const dirClass = (d) => d === 'LONG'
+                      ? 'bg-green-100 text-green-700'
+                      : d === 'SHORT'
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-gray-100 text-gray-600'
+
+                    return (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wide">
+                            <tr>
+                              {bypassEnabled && <th className="px-3 py-2 w-8"></th>}
+                              <th className="px-3 py-2 text-left">Symbol</th>
+                              <th className="px-2 py-2 text-left">Dir</th>
+                              <th className="px-2 py-2 text-left">Grade</th>
+                              <th className="px-3 py-2 text-right">Trigger</th>
+                              <th className="px-3 py-2 text-right">Stop</th>
+                              <th className="px-3 py-2 text-right">Target</th>
+                              <th className="px-3 py-2 text-left">Why</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {tradeable.map((signal, idx) => {
+                              const ticker = signal.ticker
+                              const isSelected = selectedSignals.has(ticker)
+                              const eligibleForBypass = isBypassEligible(signal)
+                              const atCap = selectedSignals.size >= BYPASS_MAX_SELECTIONS && !isSelected
+                              const checkboxDisabled = !bypassEnabled || !eligibleForBypass || atCap
+                              return (
+                                <tr key={idx} className={`border-t border-gray-100 ${isSelected ? 'bg-amber-50/60' : 'hover:bg-gray-50'}`}>
+                                  {bypassEnabled && (
+                                    <td className="px-3 py-2 align-middle">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        disabled={checkboxDisabled}
+                                        onChange={() => toggleSignalSelection(ticker, signal)}
+                                        title={
+                                          !eligibleForBypass
+                                            ? "Grade-D or ungraded — can't bypass"
+                                            : atCap
+                                              ? `Max ${BYPASS_MAX_SELECTIONS} selected`
+                                              : 'Select for mechanics-test execution'
+                                        }
+                                        className="w-4 h-4 rounded border-gray-400 text-amber-600 focus:ring-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                                      />
+                                    </td>
+                                  )}
+                                  <td className="px-3 py-2 font-semibold text-gray-900 whitespace-nowrap">{ticker}</td>
+                                  <td className="px-2 py-2">
+                                    <span className={`px-1.5 py-0.5 text-xs rounded font-medium ${dirClass(signal.direction)}`}>
+                                      {signal.direction || '—'}
+                                    </span>
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <span className={`px-1.5 py-0.5 text-xs rounded font-bold ${gradeClass(signal.grade)}`}>
+                                      {signal.grade || '—'}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">{fmtTrigger(signal)}</td>
+                                  <td className="px-3 py-2 text-right tabular-nums text-red-600 whitespace-nowrap">{fmtNum(signal.stop)}</td>
+                                  <td className="px-3 py-2 text-right tabular-nums text-green-700 whitespace-nowrap">{fmtNum(signal.target)}</td>
+                                  <td className="px-3 py-2 text-gray-600 max-w-xl" title={signal.rationale_one_liner || signal.setupType || ''}>
+                                    <span className="block truncate">{signal.rationale_one_liner || signal.setupType || '—'}</span>
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )
+                  })()}
 
                   {/* Bypass execute footer — only shows when bypass mode is
                       on and the user has curated at least one eligible pick. */}
@@ -3249,159 +2950,6 @@ Format: Ticker, Notes (we'll fetch live prices)"
                   )}
 
                 </div>
-              )}
-
-              {activeReportTab === 'openpositions' && (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                  <div className="p-4 border-b border-gray-100">
-                    <h2 className="font-bold text-gray-900">Open Positions</h2>
-                  </div>
-
-                  {analysisResult.parsedPositions && analysisResult.parsedPositions.length > 0 ? (
-                    <div>
-                      {analysisResult.parsedPositions.map((position, index) => (
-                        <div key={index} className="border-b border-gray-100 last:border-b-0">
-                          <button
-                            onClick={() => setExpandedPosition(expandedPosition === position.ticker ? null : position.ticker)}
-                            className="w-full p-4 flex items-center justify-between hover:bg-gray-50"
-                          >
-                            <div className="flex items-center gap-4">
-                              <div className={`w-12 h-12 ${
-                                position.action === 'EXIT' || position.action === 'CLOSE' ? 'bg-red-500' :
-                                position.action === 'HOLD' ? 'bg-blue-500' :
-                                position.action === 'TRAIL' ? 'bg-green-500' :
-                                position.direction === 'LONG' ? 'bg-green-500' :
-                                position.direction === 'SHORT' ? 'bg-red-500' : 'bg-blue-500'
-                              } rounded-xl flex items-center justify-center text-white font-bold text-lg`}>
-                                {position.direction === 'LONG' ? 'L' : position.direction === 'SHORT' ? 'S' : 'H'}
-                              </div>
-                              <div className="text-left">
-                                <p className="font-bold text-gray-900">{position.ticker}</p>
-                                <p className="text-sm text-gray-500">
-                                  Entry: {position.entry}
-                                  {position.daysHeld !== undefined && <span className="ml-2">• {position.daysHeld} days</span>}
-                                </p>
-                              </div>
-                              {position.pillarStatus && (
-                                <span className={`px-2 py-1 text-xs font-medium rounded ${
-                                  position.pillarStatus.includes('Active') || parseInt(position.pillarStatus) >= 4 ? 'bg-green-100 text-green-700' :
-                                  parseInt(position.pillarStatus) >= 3 ? 'bg-amber-100 text-amber-700' :
-                                  'bg-gray-100 text-gray-600'
-                                }`}>
-                                  {position.pillarStatus}
-                                </span>
-                              )}
-                              <span className={`px-2 py-1 text-xs font-medium rounded ${
-                                position.action === 'EXIT' || position.action === 'CLOSE' ? 'bg-red-100 text-red-700' :
-                                position.action === 'HOLD' ? 'bg-blue-100 text-blue-700' :
-                                position.action === 'TRAIL' ? 'bg-green-100 text-green-700' :
-                                'bg-gray-100 text-gray-600'
-                              }`}>
-                                {position.action || 'HOLD'}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-4">
-                              <div className="text-right">
-                                <p className={`font-bold ${
-                                  position.pnlPercent > 0 ? 'text-green-600' :
-                                  position.pnlPercent < 0 ? 'text-red-600' : 'text-gray-900'
-                                }`}>
-                                  {position.pnlPercent > 0 ? '+' : ''}{position.pnlPercent?.toFixed(1)}%
-                                  {position.pnlAmount && <span className="text-sm"> ({position.pnlAmount})</span>}
-                                </p>
-                                {position.currentPrice && (
-                                  <p className="text-sm text-gray-500">Current: {position.currentPrice}</p>
-                                )}
-                              </div>
-                              <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${expandedPosition === position.ticker ? 'rotate-180' : ''}`} />
-                            </div>
-                          </button>
-
-                          {/* Expanded position details */}
-                          {expandedPosition === position.ticker && (
-                            <div className="px-4 pb-4 bg-gray-50 border-t border-gray-100">
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-4">
-                                {position.entry && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">Entry Price</p>
-                                    <p className="font-bold text-gray-900">{position.entry}</p>
-                                  </div>
-                                )}
-                                {position.currentPrice && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">Current Price</p>
-                                    <p className="font-bold text-gray-900">{position.currentPrice}</p>
-                                  </div>
-                                )}
-                                {position.stop && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">Stop Loss</p>
-                                    <p className="font-bold text-red-600">{position.stop}</p>
-                                  </div>
-                                )}
-                                {position.newStop && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">New Stop</p>
-                                    <p className="font-bold text-amber-600">{position.newStop}</p>
-                                  </div>
-                                )}
-                                {position.target && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">Target</p>
-                                    <p className="font-bold text-green-600">{position.target}</p>
-                                  </div>
-                                )}
-                                {position.daysHeld !== undefined && (
-                                  <div>
-                                    <p className="text-xs text-gray-500 uppercase">Days Held</p>
-                                    <p className="font-bold text-gray-900">{position.daysHeld}</p>
-                                  </div>
-                                )}
-                              </div>
-                              {position.assessment && (
-                                <div className="mt-2 p-3 bg-blue-50 rounded-lg">
-                                  <p className="text-sm text-blue-800">{position.assessment}</p>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : formData.openPositions ? (
-                    <div className="p-4">
-                      <div className="bg-gray-50 rounded-lg p-4">
-                        <pre className="whitespace-pre-wrap text-sm text-gray-700">
-                          {analysisResult.positionsReview || 'No position analysis available.'}
-                        </pre>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-8 text-center text-gray-500">
-                      <p>No open positions to review.</p>
-                      <p className="text-sm mt-1">Positions entered in the setup will appear here with analysis.</p>
-                    </div>
-                  )}
-
-                  {/* Position Summary */}
-                  {analysisResult.positionSummary && (
-                    <div className="p-4 bg-blue-50 border-t border-blue-200">
-                      <p className="text-sm text-blue-800">{analysisResult.positionSummary}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeReportTab === 'full' && (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                  <h3 className="font-bold text-gray-900 mb-3">Full Analysis Report</h3>
-                  <div className="prose prose-sm max-w-none">
-                    <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-4 rounded-lg overflow-auto max-h-[600px]">
-                      {(analysisResult.fullAnalysis || 'No detailed analysis available.').replace(/```json[\s\S]*?```/gi, '').trim()}
-                    </pre>
-                  </div>
-                </div>
-              )}
 
               {/* Start Over */}
               <div className="text-center">
