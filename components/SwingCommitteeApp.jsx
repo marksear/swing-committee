@@ -177,6 +177,21 @@ export default function SwingCommitteeApp() {
   const [scanError, setScanError] = useState(null);
   const [showScanner, setShowScanner] = useState(false);
 
+  // Gate-bypass (mechanics-test) state.
+  //
+  // While we exercise the IG execution mechanics end-to-end on DEMO, the user
+  // can opt into a bypass path: pick up to 3 tickers from the Trade Signals
+  // tab and ship them to entry-rules with entry gates suspended, sizing +
+  // exits still enforced. Floor rules: max 3, grade-D disabled. The ingest
+  // layer in entry-rules refuses bypass on LIVE and refuses expired
+  // bypass_until dates — belt-and-braces. Default window is 20 days, which
+  // leaves a ~40-day buffer before any live-money plan.
+  const BYPASS_MAX_SELECTIONS = 3;
+  const BYPASS_DEFAULT_DAYS = 20;
+  const [bypassEnabled, setBypassEnabled] = useState(false);
+  const [bypassUntilDays, setBypassUntilDays] = useState(BYPASS_DEFAULT_DAYS);
+  const [selectedSignals, setSelectedSignals] = useState(() => new Set());
+
   const [formData, setFormData] = useState({
     // Account
     accountSize: '10000',
@@ -731,6 +746,81 @@ export default function SwingCommitteeApp() {
     document.body.removeChild(a);
     // Give the browser a tick to start the download before revoking.
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  // Gate-bypass helpers ----------------------------------------------------
+
+  // Compute bypass_until as YYYY-MM-DD, N days from today (UTC).
+  const computeBypassUntil = (days) => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + Math.max(1, Math.floor(Number(days) || 0)));
+    return d.toISOString().slice(0, 10);
+  };
+
+  // Is a signal ineligible for bypass selection? Grade D (or no grade) is a
+  // floor rule Mark set — D-grade setups aren't worth the mechanics test.
+  const isBypassEligible = (signal) => {
+    if (!signal || !signal.grade) return false;
+    const g = String(signal.grade).toUpperCase();
+    return g === 'A+' || g === 'A' || g === 'B' || g === 'C';
+  };
+
+  // Build + download the bypass-flavoured scan JSON. Filters the already-built
+  // ScanRecord / shortlist to just the selected tickers and stamps the
+  // gate_bypass fields on at the top level of scan_record.
+  const downloadBypassScanJson = (scan, tickerSet, bypassUntil) => {
+    if (!scan || scan.ok === false || !scan.filename) return;
+    if (!tickerSet || tickerSet.size === 0) return;
+
+    const upper = new Set([...tickerSet].map((t) => String(t).toUpperCase()));
+    const filteredShortlist = (scan.shortlist_entries || []).filter((e) =>
+      upper.has(String(e.symbol).toUpperCase()),
+    );
+    if (filteredShortlist.length === 0) return;
+
+    const bypassScanRecord = {
+      ...scan.scan_record,
+      gate_bypass: true,
+      bypass_until: bypassUntil,
+    };
+
+    const payload = {
+      schema_version: scan.schema_version,
+      scan_record: bypassScanRecord,
+      shortlist_entries: filteredShortlist,
+    };
+
+    // Rename file so the user can tell bypass scans apart on disk.
+    const origName = scan.filename || 'scan.json';
+    const bypassName = origName.replace(/\.json$/i, '_bypass.json');
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = bypassName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const toggleSignalSelection = (ticker, signal) => {
+    if (!ticker || !isBypassEligible(signal)) return;
+    setSelectedSignals((prev) => {
+      const next = new Set(prev);
+      if (next.has(ticker)) {
+        next.delete(ticker);
+      } else if (next.size >= BYPASS_MAX_SELECTIONS) {
+        // At cap — ignore attempts to add a fourth. UI also disables the box.
+        return prev;
+      } else {
+        next.add(ticker);
+      }
+      return next;
+    });
   };
 
   // Helper to check if signal is a NO TRADE
@@ -2843,17 +2933,93 @@ Format: Ticker, Notes (we'll fetch live prices)"
                     <h2 className="font-bold text-gray-900">Trade Signals</h2>
                   </div>
 
+                  {/* Mechanics-test bypass ribbon — DEMO only. Toggling the
+                      checkbox enables the per-row selection controls below
+                      and reveals the bypass download button. */}
+                  <div className={`px-4 py-3 border-b border-gray-100 ${bypassEnabled ? 'bg-amber-50' : 'bg-gray-50'}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <label className="flex items-center gap-2 text-sm text-gray-800 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={bypassEnabled}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setBypassEnabled(on);
+                            if (!on) setSelectedSignals(new Set());
+                          }}
+                          className="w-4 h-4 rounded border-gray-400 text-amber-600 focus:ring-amber-500"
+                        />
+                        <span className="font-semibold">
+                          Mechanics-test bypass
+                          <span className="ml-1 text-xs font-normal text-gray-500">
+                            (DEMO only · pick up to {BYPASS_MAX_SELECTIONS})
+                          </span>
+                        </span>
+                      </label>
+                      {bypassEnabled && (
+                        <div className="flex items-center gap-2 text-xs text-gray-700">
+                          <span>Window:</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={60}
+                            value={bypassUntilDays}
+                            onChange={(e) => setBypassUntilDays(e.target.value)}
+                            className="w-16 px-2 py-1 border border-gray-300 rounded text-sm"
+                          />
+                          <span>days (until {computeBypassUntil(bypassUntilDays)})</span>
+                          <span className="ml-3 px-2 py-0.5 bg-white border border-gray-300 rounded font-medium">
+                            {selectedSignals.size}/{BYPASS_MAX_SELECTIONS} selected
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    {bypassEnabled && (
+                      <p className="mt-2 text-xs text-amber-800">
+                        Entry gates suspended; exits + position sizing still enforced. Grade-D rows can't be selected.
+                      </p>
+                    )}
+                  </div>
+
                   {analysisResult.signals && analysisResult.signals.length > 0 ? (
                     <div>
                       {analysisResult.signals
                         .filter(signal => !isNoTrade(signal) && signal.ticker && !signal.ticker.includes('REQUEST') && !signal.ticker.includes('NEEDED') && !signal.ticker.includes('TBD'))
-                        .map((signal, index) => (
-                        <div key={index} className="border-b border-gray-100 last:border-b-0" style={{ contentVisibility: 'auto', containIntrinsicSize: '0 72px' }}>
-                          <button
-                            onClick={() => setExpandedSignal(expandedSignal === signal.ticker ? null : signal.ticker)}
-                            className="w-full p-4 flex items-center justify-between hover:bg-gray-50"
-                          >
+                        .map((signal, index) => {
+                          const ticker = signal.ticker;
+                          const isSelected = selectedSignals.has(ticker);
+                          const eligibleForBypass = isBypassEligible(signal);
+                          const atCap = selectedSignals.size >= BYPASS_MAX_SELECTIONS && !isSelected;
+                          const checkboxDisabled = !bypassEnabled || !eligibleForBypass || atCap;
+                          return (
+                        <div key={index} className={`border-b border-gray-100 last:border-b-0 ${isSelected ? 'bg-amber-50/60' : ''}`} style={{ contentVisibility: 'auto', containIntrinsicSize: '0 72px' }}>
+                          <div className="w-full p-4 flex items-center justify-between hover:bg-gray-50">
                             <div className="flex items-center gap-4">
+                              {bypassEnabled && (
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  disabled={checkboxDisabled}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    toggleSignalSelection(ticker, signal);
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  title={
+                                    !eligibleForBypass
+                                      ? 'Grade-D or ungraded signals can\'t be selected'
+                                      : atCap
+                                        ? `Max ${BYPASS_MAX_SELECTIONS} selected`
+                                        : 'Select for mechanics-test execution'
+                                  }
+                                  className="w-5 h-5 rounded border-gray-400 text-amber-600 focus:ring-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                                />
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setExpandedSignal(expandedSignal === ticker ? null : ticker)}
+                                className="flex items-center gap-4 flex-1 text-left"
+                              >
                               <div className={`w-12 h-12 ${getSignalBoxColor(signal)} rounded-xl flex items-center justify-center text-white font-bold text-xl`}>
                                 {getSignalBoxLabel(signal)}
                               </div>
@@ -2888,18 +3054,23 @@ Format: Ticker, Notes (we'll fetch live prices)"
                                   {signal.verdict}
                                 </span>
                               )}
+                              </button>
                             </div>
-                            <div className="flex items-center gap-4">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedSignal(expandedSignal === ticker ? null : ticker)}
+                              className="flex items-center gap-4"
+                            >
                               <div className="text-right">
                                 {signal.entry && <p className="font-bold text-gray-900">Entry: {signal.entry}</p>}
                                 {signal.stop && <p className="text-sm text-gray-500">Stop: {signal.stop}</p>}
                               </div>
                               <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${expandedSignal === signal.ticker ? 'rotate-180' : ''}`} />
-                            </div>
-                          </button>
+                            </button>
+                          </div>
 
                           {/* Expanded signal details */}
-                          {expandedSignal === signal.ticker && (
+                          {expandedSignal === ticker && (
                             <div className="px-4 pb-4 bg-gray-50 border-t border-gray-100">
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-4">
                                 {signal.grade && (
@@ -3002,12 +3173,40 @@ Format: Ticker, Notes (we'll fetch live prices)"
                             </div>
                           )}
                         </div>
-                      ))}
+                          );
+                        })}
                     </div>
                   ) : (
                     <div className="p-8 text-center text-gray-500">
                       <p>No actionable trade signals found. All tickers were marked as NO TRADE.</p>
                       <p className="text-sm mt-2">Check the Full Report for detailed analysis of each ticker.</p>
+                    </div>
+                  )}
+
+                  {/* Bypass execute footer — only shows when bypass mode is
+                      on and the user has curated at least one eligible pick. */}
+                  {bypassEnabled && selectedSignals.size > 0 && analysisResult.scan?.ok && (
+                    <div className="p-4 bg-amber-50 border-t border-amber-200 flex flex-wrap items-center justify-between gap-3">
+                      <div className="text-xs text-amber-900">
+                        <span className="font-semibold">Mechanics-test bypass:</span>{' '}
+                        {selectedSignals.size}/{BYPASS_MAX_SELECTIONS} selected
+                        {' · '}bypass_until <code className="bg-white px-1.5 py-0.5 rounded">{computeBypassUntil(bypassUntilDays)}</code>
+                        {' · '}DEMO only
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          downloadBypassScanJson(
+                            analysisResult.scan,
+                            selectedSignals,
+                            computeBypassUntil(bypassUntilDays),
+                          )
+                        }
+                        className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors text-sm font-semibold whitespace-nowrap"
+                        title="Download a bypass scan JSON for entry-rules/data/scans/"
+                      >
+                        Download bypass scan ({selectedSignals.size})
+                      </button>
                     </div>
                   )}
 
