@@ -753,15 +753,21 @@ export default function SwingCommitteeApp() {
     return d.toISOString().slice(0, 10);
   };
 
-  // Is a signal eligible for bypass selection? Must have a grade in the risk
-  // ladder (A+/A/B). Grade C and D are excluded because lib/scanEmission.js's
-  // GRADE_TO_RISK_PCT table only sizes A+/A/B — a C selection would silently
-  // drop from the built bypass payload. Keeping the UI in lockstep with the
-  // risk ladder prevents that surprise.
+  // Is a signal eligible for bypass selection? Must have a grade that
+  // lib/scanEmission.js can size. A+/A/B are the production ladder; C is
+  // permitted ONLY here on the bypass path so a DEMO mechanics-test run can
+  // proceed even when the day's scan produced nothing above C (which happens
+  // whenever sector data is missing and sectorRS defaults to 5 — the known
+  // grade-ceiling issue documented in project_grade_ceiling_diagnosis.md).
+  // C is still excluded from live flow because bypass itself is DEMO-only
+  // (enforced on both sides — the emitter throws on brokerMode=LIVE and the
+  // entry-rules ingester refuses bypass on LIVE). D and ungraded stay out:
+  // GRADE_TO_RISK_PCT has no entry for them, so they'd silently drop from
+  // the built bypass payload.
   const isBypassEligible = (signal) => {
     if (!signal || !signal.grade) return false;
     const g = String(signal.grade).toUpperCase();
-    return g === 'A+' || g === 'A' || g === 'B';
+    return g === 'A+' || g === 'A' || g === 'B' || g === 'C';
   };
 
   // Build + download the bypass-flavoured scan JSON.
@@ -2793,7 +2799,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                     </div>
                     {bypassEnabled && (
                       <p className="mt-2 text-xs text-amber-800">
-                        Entry gates suspended; exits + position sizing still enforced. Grade-D rows can't be selected.
+                        Entry gates suspended; exits + position sizing still enforced. A+/A/B/C selectable (C sizes at B's 0.5% for mechanics-test); D and ungraded excluded.
                       </p>
                     )}
                   </div>
