@@ -733,6 +733,8 @@ export default function SwingCommitteeApp() {
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: 'application/json',
     });
+
+    // Primary: today's file — overwrites yesterday (unless validator blocked).
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -742,6 +744,25 @@ export default function SwingCommitteeApp() {
     document.body.removeChild(a);
     // Give the browser a tick to start the download before revoking.
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    // Archive sibling: timestamped, never overwrites. Only when flag is on.
+    // NEXT_PUBLIC_SCAN_ARCHIVE is build-time inlined, so flipping it needs a
+    // redeploy. Ships default-off — see IMPLEMENTATION_SPEC.md §6.
+    if (process.env.NEXT_PUBLIC_SCAN_ARCHIVE === '1') {
+      const ymd = scan.filename.replace(/^scan_|\.json$/g, '');
+      const now = new Date();
+      const hhmmss = [now.getHours(), now.getMinutes(), now.getSeconds()]
+        .map((n) => String(n).padStart(2, '0'))
+        .join('');
+      const archiveUrl = URL.createObjectURL(blob);
+      const archiveA = document.createElement('a');
+      archiveA.href = archiveUrl;
+      archiveA.download = `scan_${ymd}_${hhmmss}.json`;
+      document.body.appendChild(archiveA);
+      archiveA.click();
+      document.body.removeChild(archiveA);
+      setTimeout(() => URL.revokeObjectURL(archiveUrl), 1000);
+    }
   };
 
   // Gate-bypass helpers ----------------------------------------------------

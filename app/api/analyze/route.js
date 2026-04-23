@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { LOG_SCHEMA_VERSION, buildScanPayload } from '../../../lib/scanEmission.js'
+import { validateScanPayload, hasBlockingFindings } from '../../../lib/intake/validate_scan'
 
 // Allow up to 120s on Vercel Pro (default is 10s on Hobby)
 export const maxDuration = 300
@@ -81,35 +82,91 @@ export async function POST(request) {
     // ------------------------------------------------------------------
     try {
       const now = new Date()
+      // Session 10 — fetch the Finnhub-backed calendar if the event filter
+      // is enabled, so buildScanPayload can suppress signals whose ticker
+      // has earnings imminent or that fall inside an FOMC/NFP blackout. The
+      // fetch is best-effort: any failure (no Finnhub key, rate limit,
+      // network blip) logs and passes `calendar: null` through so the
+      // filter silently no-ops and the scan still emits.
+      let calendar = null
+      if (/^(1|true|yes|on)$/i.test(String(process.env.EVENT_FILTER_ENABLED || '').trim())) {
+        try {
+          const base = process.env.VERCEL_URL
+            ? `https://${process.env.VERCEL_URL}`
+            : (process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000')
+          const res = await fetch(`${base}/api/calendar`, {
+            headers: { 'cache-control': 'no-cache' },
+          })
+          if (res.ok) {
+            calendar = await res.json()
+          } else {
+            console.warn(`[Analyze] Calendar fetch HTTP ${res.status} — event filter will no-op`)
+          }
+        } catch (calErr) {
+          console.warn('[Analyze] Calendar fetch failed — event filter will no-op:', calErr.message)
+        }
+      }
       const { scanRecord, shortlistEntries, bypassCandidateEntries } = await buildScanPayload({
         formData,
         scannerResults,
         analysisResult: result,
         ruleSetVersion: process.env.RULE_SET_VERSION || '',
         now,
+        calendar,
       })
       const ymd = now.toISOString().slice(0, 10).replace(/-/g, '')
-      result.scan = {
-        ok: true,
-        schema_version: LOG_SCHEMA_VERSION,
-        filename: `scan_${ymd}.json`,
-        scan_id: scanRecord.scan_id,
-        shortlist_count: shortlistEntries.length,
-        // The two top-level fields that make up the handoff file exactly as
-        // entry-rules' session_init.py will read it back:
-        scan_record: scanRecord,
-        shortlist_entries: shortlistEntries,
-        // Parallel bypass-eligible entries. Includes every gradable (A+/A/B)
-        // signal regardless of verdict — WATCHLIST + TAKE-TRADE + DAY-TRADE.
-        // Frontend filters this down to the user's 1–3 hand-picked bypass
-        // tickers, then stamps gate_bypass:true + bypass_until on the scan
-        // record before downloading. Not used on non-bypass runs.
-        bypass_candidate_entries: bypassCandidateEntries ?? [],
-        bypass_candidate_count: (bypassCandidateEntries ?? []).length,
+
+      // ── Scan validator gate ─────────────────────────────────────────────
+      // Reference spec: money-program-trading/src/intake/validate_scan.py.
+      // TS port: ../../../lib/intake/validate_scan.ts — MUST stay in sync
+      // (same cross-repo pattern as app/api/scanner/route.js:2062,:2340).
+      const validation = validateScanPayload(scanRecord, shortlistEntries)
+      const validationErrors = validation.findings.filter((f) => f.severity === 'error')
+      const validationWarnings = validation.findings.filter((f) => f.severity === 'warning')
+
+      if (hasBlockingFindings(validation) && process.env.SCAN_STRICT === '1') {
+        // Strict mode & at least one ERROR finding: refuse to emit a replacement
+        // scan file. The browser sees ok:false and keeps yesterday's download.
+        console.warn(
+          `[Analyze] Scan ${ymd} blocked by validator: ${validationErrors.length} error, ${validationWarnings.length} warning`
+        )
+        result.scan = {
+          ok: false,
+          reason: 'validator_blocked',
+          schema_version: LOG_SCHEMA_VERSION,
+          filename: `scan_${ymd}.json`,
+          errors: validationErrors,
+          warnings: validationWarnings,
+        }
+      } else {
+        result.scan = {
+          ok: true,
+          schema_version: LOG_SCHEMA_VERSION,
+          filename: `scan_${ymd}.json`,
+          scan_id: scanRecord.scan_id,
+          shortlist_count: shortlistEntries.length,
+          // The two top-level fields that make up the handoff file exactly as
+          // entry-rules' session_init.py will read it back:
+          scan_record: scanRecord,
+          shortlist_entries: shortlistEntries,
+          // Parallel bypass-eligible entries. Includes every gradable (A+/A/B)
+          // signal regardless of verdict — WATCHLIST + TAKE-TRADE + DAY-TRADE.
+          // Frontend filters this down to the user's 1–3 hand-picked bypass
+          // tickers, then stamps gate_bypass:true + bypass_until on the scan
+          // record before downloading. Not used on non-bypass runs.
+          bypass_candidate_entries: bypassCandidateEntries ?? [],
+          bypass_candidate_count: (bypassCandidateEntries ?? []).length,
+          // Validator findings surfaced even on ok:true so the UI can banner them.
+          // Under SCAN_STRICT=0 (default), errors here do NOT block the download.
+          validation: {
+            errors: validationErrors,
+            warnings: validationWarnings,
+          },
+        }
+        console.log(
+          `[Analyze] Built scan ${result.scan.filename} — ${shortlistEntries.length} shortlist entries, ${(bypassCandidateEntries ?? []).length} bypass-eligible, validation: ${validationErrors.length} error / ${validationWarnings.length} warning`
+        )
       }
-      console.log(
-        `[Analyze] Built scan ${result.scan.filename} — ${shortlistEntries.length} shortlist entries, ${(bypassCandidateEntries ?? []).length} bypass-eligible`
-      )
     } catch (scanError) {
       console.error('[Analyze] Scan payload build failed:', scanError)
       result.scan = { ok: false, error: scanError.message }

@@ -1,0 +1,118 @@
+{
+  "schema_version": 2,
+  "scan_record": {
+    "scan_id": "clean-0001",
+    "session_id": null,
+    "scanned_at_utc": "2026-04-22T13:39:00.644Z",
+    "universe_size": 3,
+    "broker_mode": "DEMO",
+    "regime": {
+      "regime": "GREEN",
+      "regime_score": 0.72,
+      "vix_level": 15.3,
+      "breadth_us": 0.61,
+      "breadth_uk": null,
+      "notes": ""
+    },
+    "scored_universe": [
+      {
+        "symbol": "NVDA",
+        "market": "US",
+        "price": 143.25,
+        "currency": "USD",
+        "pillar_pass_count": 4,
+        "pillar_bitmap": 47,
+        "day1_score": 82,
+        "day1_tier": "A",
+        "grade": "A",
+        "shortlisted": true,
+        "rejection_reason": null,
+        "rejection_code": null
+      },
+      {
+        "symbol": "MSFT",
+        "market": "US",
+        "price": 418.9,
+        "currency": "USD",
+        "pillar_pass_count": 2,
+        "pillar_bitmap": 5,
+        "day1_score": 48,
+        "day1_tier": "C",
+        "grade": "C",
+        "shortlisted": false,
+        "rejection_reason": "Insufficient pillars",
+        "rejection_code": "PILLAR_THRESHOLD"
+      },
+      {
+        "symbol": "AAPL",
+        "market": "US",
+        "price": 196.5,
+        "currency": "USD",
+        "pillar_pass_count": 3,
+        "pillar_bitmap": 21,
+        "day1_score": 64,
+        "day1_tier": "B",
+        "grade": "B",
+        "shortlisted": false,
+        "rejection_reason": null,
+        "rejection_code": null
+      }
+    ],
+    "scanner_version": "swing-committee@1.7.2",
+    "rule_set_version": "ruleset-2026-04-15",
+    "schema_version": 2,
+    "gate_bypass": false,
+    "bypass_until": null,
+    "extras": {
+      "scan_date": "2026-04-22",
+      "account_size_gbp": 10000,
+      "session_label": "US_REGULAR",
+      "committee_mode": "ACTIVE",
+      "summary": "1 candidate approved in GREEN regime."
+    }
+  },
+  "shortlist_entries": [
+    {
+      "candidate_id": "clean-cand-01",
+      "scan_id": "clean-0001",
+      "session_id": null,
+      "symbol": "NVDA",
+      "market": "US",
+      "direction": "LONG",
+      "setup_type": "L-A",
+      "grade": "A",
+      "trigger_low": 142.5,
+      "trigger_high": 144.2,
+      "stop_price": 138.8,
+      "target_price": 155.0,
+      "planned_stake_gbp_per_pt": 0.18,
+      "planned_risk_gbp": 82.89,
+      "planned_risk_pct_account": 0.0083,
+      "pillar_votes": {
+        "livermore": true,
+        "oneil": true,
+        "minervini": true,
+        "darvas": true,
+        "raschke": false,
+        "weinstein": false
+      },
+      "committee_stance": "### TRADE SIGNAL: NVDA\n\n**SETUP IDENTIFICATION:**\n- Direction: LONG\n- Setup Type: L-A\n- Timeframe: Short-Term Swing\n- Confidence: High\n\n**LEVELS:**\n- Current Price: 143.25\n- Entry Zone: 142.50-144.20\n- Stop Loss: 138.80 (£82.89 risk)\n- Target 1: 155.00 (R:R 2.9) — take 50%\n\n**PILLAR COUNT:** 4/6 — PASS\n\n**GRADE:** A\n\n**VERDICT:** TAKE TRADE\n",
+      "day1_score": 82,
+      "day1_tier": "A",
+      "price_source": "IG",
+      "price_as_of_utc": "2026-04-22T13:38:50.000Z",
+      "reference_last_traded": 143.25,
+      "broker_mode": "DEMO",
+      "created_at_utc": "2026-04-22T13:39:00.644Z",
+      "schema_version": 2,
+      "rule_set_version": "ruleset-2026-04-15",
+      "extras": {
+        "setupType_raw": "LONG L-A",
+        "pillarCount": 4,
+        "riskReward": 2.9,
+        "verdict": "TAKE TRADE"
+      },
+      "notes": ""
+    }
+  ]
+}
