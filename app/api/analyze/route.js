@@ -110,7 +110,14 @@ export async function POST(request) {
         formData,
         scannerResults,
         analysisResult: result,
-        ruleSetVersion: process.env.RULE_SET_VERSION || '',
+        // Prefer an explicit RULE_SET_VERSION (e.g. a semver like v1.0.0 set in
+        // Vercel env). Otherwise fall back to the commit SHA Vercel auto-injects
+        // on every deploy — gives a traceable, self-maintaining stamp so the
+        // `version.rule_set_blank` validator warning doesn't fire.
+        ruleSetVersion:
+          process.env.RULE_SET_VERSION
+          || process.env.VERCEL_GIT_COMMIT_SHA
+          || '',
         now,
         calendar,
       })
