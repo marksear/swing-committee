@@ -2058,9 +2058,14 @@ function getEntryTiming(ticker) {
   }
 }
 
-// Sector ETF mapping for relative strength calculation
+// Sector ETF mapping for relative strength calculation.
+// MUST stay in sync with money-program-trading/src/backtest/sector_map.py
+// (see feedback_schema_canon: cross-repo schema parity is mandatory).
+// Coverage expanded 2026-04-18 from 35% → 95% of sp100+NDX+FTSE universe;
+// prior coverage starved the sector-RS pillar to neutral-5 for 65% of
+// symbols, capping backtest scores ~5pts below the A grade threshold.
 const SECTOR_ETFS = {
-  // US sectors
+  // ── US sectors (original JS map) ──
   'AAPL': 'XLK', 'MSFT': 'XLK', 'GOOGL': 'XLK', 'META': 'XLK', 'NVDA': 'XLK',
   'AVGO': 'XLK', 'ADBE': 'XLK', 'CRM': 'XLK', 'CSCO': 'XLK', 'INTC': 'XLK',
   'AMD': 'XLK', 'QCOM': 'XLK', 'TXN': 'XLK', 'ACN': 'XLK', 'NFLX': 'XLK',
@@ -2072,7 +2077,55 @@ const SECTOR_ETFS = {
   'PG': 'XLP', 'KO': 'XLP', 'PEP': 'XLP', 'COST': 'XLP', 'WMT': 'XLP', 'PM': 'XLP',
   'NEE': 'XLU', 'VZ': 'XLC', 'CMCSA': 'XLC',
   'RTX': 'XLI', 'HON': 'XLI', 'BA': 'XLI', 'UNP': 'XLI', 'CAT': 'XLI',
-  // UK stocks - use FTSE 100 as sector proxy
+
+  // ── 2026-04-18 expansion — parity with Python backtest (Task #23) ──
+  // XLK (Technology Select)
+  'ADI': 'XLK', 'AMAT': 'XLK', 'ANSS': 'XLK', 'ASML': 'XLK',
+  'CDNS': 'XLK', 'CDW': 'XLK', 'CRWD': 'XLK', 'CTSH': 'XLK',
+  'DDOG': 'XLK', 'FTNT': 'XLK', 'GFS': 'XLK', 'IBM': 'XLK',
+  'INTU': 'XLK', 'KLAC': 'XLK', 'LRCX': 'XLK', 'MCHP': 'XLK',
+  'MRVL': 'XLK', 'MU': 'XLK', 'NXPI': 'XLK', 'ON': 'XLK',
+  'ORCL': 'XLK', 'PANW': 'XLK', 'ROP': 'XLK', 'SNPS': 'XLK',
+  'TEAM': 'XLK', 'VRSN': 'XLK', 'WDAY': 'XLK', 'ZM': 'XLK',
+  'ZS': 'XLK', 'ADSK': 'XLK', 'ENPH': 'XLK', 'GOOG': 'XLK',
+  // XLY (Consumer Discretionary)
+  'BKNG': 'XLY', 'DASH': 'XLY', 'DLTR': 'XLY', 'EBAY': 'XLY',
+  'F': 'XLY', 'GM': 'XLY', 'LULU': 'XLY', 'MAR': 'XLY',
+  'MELI': 'XLY', 'ORLY': 'XLY', 'PDD': 'XLY', 'ROST': 'XLY',
+  'SBUX': 'XLY', 'TGT': 'XLY',
+  // XLF (Financial)
+  'AIG': 'XLF', 'ALL': 'XLF', 'AXP': 'XLF', 'BAC': 'XLF',
+  'BK': 'XLF', 'BLK': 'XLF', 'C': 'XLF', 'COF': 'XLF',
+  'GS': 'XLF', 'MET': 'XLF', 'MS': 'XLF', 'PYPL': 'XLF',
+  'SCHW': 'XLF', 'USB': 'XLF', 'WFC': 'XLF',
+  // XLV (Health Care)
+  'AMGN': 'XLV', 'AZN': 'XLV', 'BIIB': 'XLV', 'BMY': 'XLV',
+  'CVS': 'XLV', 'DXCM': 'XLV', 'GEHC': 'XLV', 'GILD': 'XLV',
+  'IDXX': 'XLV', 'ILMN': 'XLV', 'ISRG': 'XLV', 'MDT': 'XLV',
+  'MRNA': 'XLV', 'REGN': 'XLV',
+  // XLE (Energy)
+  'BKR': 'XLE', 'COP': 'XLE', 'FANG': 'XLE',
+  // XLP (Consumer Staples)
+  'CL': 'XLP', 'KDP': 'XLP', 'KHC': 'XLP', 'MDLZ': 'XLP',
+  'MNST': 'XLP', 'MO': 'XLP', 'WBA': 'XLP',
+  // XLU (Utilities)
+  'AEP': 'XLU', 'CEG': 'XLU', 'DUK': 'XLU', 'EXC': 'XLU',
+  'SO': 'XLU', 'XEL': 'XLU',
+  // XLC (Communication Services)
+  'CHTR': 'XLC', 'DIS': 'XLC', 'EA': 'XLC', 'SIRI': 'XLC',
+  'T': 'XLC', 'TMUS': 'XLC', 'TTD': 'XLC', 'TTWO': 'XLC',
+  'WBD': 'XLC',
+  // XLI (Industrials)
+  'ADP': 'XLI', 'CPRT': 'XLI', 'CSX': 'XLI', 'CTAS': 'XLI',
+  'DE': 'XLI', 'EMR': 'XLI', 'FAST': 'XLI', 'FDX': 'XLI',
+  'GD': 'XLI', 'GE': 'XLI', 'LMT': 'XLI', 'MMM': 'XLI',
+  'ODFL': 'XLI', 'PAYX': 'XLI', 'PCAR': 'XLI', 'UPS': 'XLI',
+  'VRSK': 'XLI',
+  // Note: AMT, SPG (Real Estate — XLRE) and LIN (Materials — XLB)
+  // intentionally unmapped; neither XLRE nor XLB is in the scanner's
+  // sector-ETF proxy set. Unmapped symbols fall through to neutral-5.
+
+  // ── UK stocks — FTSE 100 as sector proxy ──
   'SHEL.L': '^FTSE', 'BP.L': '^FTSE', 'AZN.L': '^FTSE', 'HSBA.L': '^FTSE',
   'ULVR.L': '^FTSE', 'GSK.L': '^FTSE', 'RIO.L': '^FTSE', 'REL.L': '^FTSE',
   'DGE.L': '^FTSE', 'BATS.L': '^FTSE', 'LSEG.L': '^FTSE', 'NG.L': '^FTSE',
@@ -2279,7 +2332,16 @@ function calculatePillarScores(indicators) {
   }
 
   // ── O'NEIL: Participation Quality (Demand vs Supply) ──
-  // LONG: Accumulation (up volume dominates)
+  // Three independent components so the classic VCP-breakout-on-surge
+  // pattern can reach the pillar max (previously capped at 8/10 because
+  // the old "dry-up in base" bonus required `volumeRatio < 0.8` which
+  // mutually excluded the `volumeRatio > 1.5` surge bonus —
+  // diagnosed 2026-04-18, must stay in sync with
+  // money-program-trading/src/backtest/replay_scanner.py#score_pillars).
+  //   1. UDV flow ratio — 10-day up-vs-down volume. Direction-specific.
+  //   2. Volume surge — today's bar. Direction-agnostic.
+  //   3. VCP base structure — 4-week contraction. Decoupled from today's vr.
+  // Stacked additively then capped at 10 so the pillar stays bounded.
   if (indicators.upDownVolumeRatio > 1.5) {
     pillars.oneil.longScore += 4
     pillars.oneil.notes.push('Strong accumulation')
@@ -2287,7 +2349,6 @@ function calculatePillarScores(indicators) {
     pillars.oneil.longScore += 2
     pillars.oneil.notes.push('Mild accumulation')
   }
-  // SHORT: Distribution (down volume dominates)
   if (indicators.upDownVolumeRatio < 0.67) {
     pillars.oneil.shortScore += 4
     pillars.oneil.notes.push('Strong distribution')
@@ -2295,7 +2356,6 @@ function calculatePillarScores(indicators) {
     pillars.oneil.shortScore += 2
     pillars.oneil.notes.push('Mild distribution')
   }
-  // Volume surge — direction-agnostic (confirms conviction either way)
   if (indicators.volumeRatio > 1.5) {
     pillars.oneil.longScore += 4
     pillars.oneil.shortScore += 4
@@ -2305,16 +2365,19 @@ function calculatePillarScores(indicators) {
     pillars.oneil.shortScore += 2
     pillars.oneil.notes.push('Above-average volume')
   }
-  // LONG: Volume dry-up in base (bullish for breakout)
-  if (indicators.vcpScore > 0 && indicators.volumeRatio < 0.8) {
+  // VCP base structure bonus — replaces the old vr<0.8 dry-up gate so
+  // surge + base can co-fire on breakout days.
+  if (indicators.vcpScore > 0) {
     pillars.oneil.longScore += 2
-    pillars.oneil.notes.push('Volume dry-up in base')
+    pillars.oneil.notes.push('VCP base structure (bullish)')
+    if (indicators.momentum3d < 0) {
+      pillars.oneil.shortScore += 2
+      pillars.oneil.notes.push('Failed base (short setup)')
+    }
   }
-  // SHORT: Failed rally on low volume (bearish for breakdown)
-  if (indicators.vcpScore > 0 && indicators.volumeRatio < 0.8 && indicators.momentum3d < 0) {
-    pillars.oneil.shortScore += 2
-    pillars.oneil.notes.push('Failed rally on low volume')
-  }
+  // Cap at pillar max
+  pillars.oneil.longScore = Math.min(pillars.oneil.max, pillars.oneil.longScore)
+  pillars.oneil.shortScore = Math.min(pillars.oneil.max, pillars.oneil.shortScore)
 
   // ── MINERVINI: Trend Template (MA Alignment) ──
   // LONG: Price > 10 > 20 > 50 stacking
