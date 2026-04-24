@@ -1,0 +1,104 @@
+{
+  "formData": {
+    "accountSize": "10000",
+    "brokerMode": "DEMO"
+  },
+  "scannerResults": {
+    "regime": "GREEN",
+    "mclScore": 0.72,
+    "results": {
+      "primary": [
+        {
+          "ticker": "NVDA",
+          "score": 92,
+          "tier": "A",
+          "market": "US"
+        },
+        {
+          "ticker": "AAPL",
+          "score": 88,
+          "tier": "A",
+          "market": "US"
+        }
+      ],
+      "watchlist": [
+        {
+          "ticker": "BARC.L",
+          "score": 71,
+          "tier": "B",
+          "market": "UK"
+        }
+      ],
+      "dayTrades": {
+        "vix": 14.2
+      }
+    }
+  },
+  "analysisResult": {
+    "mode": "Bull Committee",
+    "summary": "Three high-grade setups this morning.",
+    "signals": [
+      {
+        "ticker": "NVDA",
+        "name": "NVDA",
+        "direction": "LONG",
+        "verdict": "TAKE TRADE",
+        "entry": "145.50-146.00",
+        "stop": "142.00",
+        "target": "154.00",
+        "grade": "A+",
+        "pillarCount": 6,
+        "setupType": "VCP Breakout",
+        "riskReward": "2.4:1",
+        "rawSection": "markdown..."
+      },
+      {
+        "ticker": "AAPL",
+        "name": "AAPL",
+        "direction": "SHORT",
+        "verdict": "TAKE TRADE",
+        "entry": "220.00",
+        "stop": "224.50",
+        "target": "210.00",
+        "grade": "A",
+        "pillarCount": 5,
+        "setupType": "Head & Shoulders Breakdown",
+        "riskReward": "2.2:1",
+        "rawSection": "markdown..."
+      },
+      {
+        "ticker": "BARC.L",
+        "name": "Barclays",
+        "direction": "WATCHLIST ONLY",
+        "verdict": "WATCHLIST",
+        "grade": null,
+        "setupType": "Breakout Watch",
+        "rawSection": "markdown..."
+      },
+      {
+        "ticker": "BAD1",
+        "direction": "LONG",
+        "verdict": "TAKE TRADE",
+        "entry": "100.00",
+        "stop": "105.00",
+        "target": "110.00",
+        "grade": "B",
+        "setupType": "Pullback",
+        "rawSection": "markdown..."
+      },
+      {
+        "ticker": "TSLA",
+        "direction": "LONG",
+        "verdict": "DAY TRADE",
+        "entry": "250.00",
+        "stop": "246.00",
+        "target": "258.00",
+        "grade": "B",
+        "setupType": "Pocket Pivot",
+        "rawSection": "markdown..."
+      }
+    ]
+  },
+  "ruleSetVersion": "baseline-2026-04-24",
+  "now": "2026-04-24T13:45:00.000Z"
+}
