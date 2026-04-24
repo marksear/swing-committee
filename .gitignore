@@ -37,3 +37,7 @@ next-env.d.ts
 # Scan handoff files (produced by /api/analyze, consumed by entry-rules)
 /data/scans/
 /data/trades.json
+
+# Session outputs / personal notes
+journals/
+reminders/
