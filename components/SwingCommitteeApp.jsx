@@ -408,15 +408,30 @@ export default function SwingCommitteeApp() {
 
       const data = await response.json();
       setScanResults(data);
-
+      return data;
     } catch (error) {
       setScanError(error.message);
+      return null;
     } finally {
       setIsScanning(false);
     }
   };
 
-  const runAnalysis = async () => {
+  const runAnalysis = async (scanDataOverride = null) => {
+    // The Watchlist step (case 3) used to trigger runScanner() before
+    // runAnalysis. That step is gone, so runAnalysis now ensures the
+    // scanner has run before proceeding. The click handler typically
+    // passes the data via `scanDataOverride` (avoiding React closure
+    // staleness on scanResults state); retry buttons rely on the inline
+    // fallback below. See `narrow-scan-ui` 2a/2b.
+    let effectiveScanResults = scanDataOverride || scanResults;
+    if (!effectiveScanResults) {
+      effectiveScanResults = await runScanner();
+      if (!effectiveScanResults) {
+        setAnalysisError('Scanner failed — cannot proceed with analysis');
+        return;
+      }
+    }
     // Build dynamic steps based on what we're analyzing
     const baseSteps = [
       'Loading account parameters...',
@@ -440,11 +455,11 @@ export default function SwingCommitteeApp() {
     );
 
     // Add per-ticker review steps — show ALL tickers being analyzed
-    const scannerWatchlist = scanResults?.results?.watchlist || [];
+    const scannerWatchlist = effectiveScanResults?.results?.watchlist || [];
 
     // Scanner-approved trades
-    const approvedLongs = scanResults?.results?.long || [];
-    const approvedShorts = scanResults?.results?.short || [];
+    const approvedLongs = effectiveScanResults?.results?.long || [];
+    const approvedShorts = effectiveScanResults?.results?.short || [];
     const approvedTickers = [...approvedLongs, ...approvedShorts].map(s => s.ticker);
 
     // Scanner developing stocks (always included)
@@ -478,25 +493,25 @@ export default function SwingCommitteeApp() {
 
     try {
       // Strip scanner results to only what the analyze prompt needs (regime gate + minimal per-ticker data)
-      // Full scanResults can be 100-200KB; this reduces it to ~2-5KB
-      const lightScannerResults = scanResults ? {
+      // Full effectiveScanResults can be 100-200KB; this reduces it to ~2-5KB
+      const lightScannerResults = effectiveScanResults ? {
         regimeGate: {
-          source: scanResults.regimeGate?.source,
-          regimeState: scanResults.regimeGate?.regimeState,
-          ukRegimeState: scanResults.regimeGate?.ukRegimeState,
-          usRegimeState: scanResults.regimeGate?.usRegimeState,
+          source: effectiveScanResults.regimeGate?.source,
+          regimeState: effectiveScanResults.regimeGate?.regimeState,
+          ukRegimeState: effectiveScanResults.regimeGate?.ukRegimeState,
+          usRegimeState: effectiveScanResults.regimeGate?.usRegimeState,
         },
-        thresholds: scanResults.thresholds,
+        thresholds: effectiveScanResults.thresholds,
         results: {
-          long: (scanResults.results?.long || []).map(s => ({
+          long: (effectiveScanResults.results?.long || []).map(s => ({
             ticker: s.ticker, score: s.score, setupTier: s.setupTier,
             tradeManagement: s.tradeManagement ? { riskRewardRatio: s.tradeManagement.riskRewardRatio } : null,
           })),
-          short: (scanResults.results?.short || []).map(s => ({
+          short: (effectiveScanResults.results?.short || []).map(s => ({
             ticker: s.ticker, score: s.score, setupTier: s.setupTier,
             tradeManagement: s.tradeManagement ? { riskRewardRatio: s.tradeManagement.riskRewardRatio } : null,
           })),
-          watchlist: (scanResults.results?.watchlist || []).map(s => ({
+          watchlist: (effectiveScanResults.results?.watchlist || []).map(s => ({
             ticker: s.ticker, score: s.score, direction: s.direction,
             price: s.price, currency: s.currency,
             // Stage failure data
@@ -521,7 +536,7 @@ export default function SwingCommitteeApp() {
             priceVsMa20: s.indicators?.priceVsMa20,
           })),
           // Day-1 Capture Module results (pre-scored, pass through to analyze)
-          dayTrades: scanResults.results?.dayTrades || { candidates: [], excluded: [], summary: {} },
+          dayTrades: effectiveScanResults.results?.dayTrades || { candidates: [], excluded: [], summary: {} },
         },
       } : null;
 
@@ -1339,11 +1354,17 @@ export default function SwingCommitteeApp() {
             )}
             {step < 1 && (
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (step === 0) {
-                    // Skip the "Ready to Scan" screen - go directly to step 5 and start analysis
+                    // Run scanner FIRST — it used to be triggered by the
+                    // deleted Watchlist step. Pass its return value
+                    // straight into runAnalysis to sidestep React closure
+                    // staleness on scanResults state.
                     setStep(1);
-                    runAnalysis();
+                    const scanData = await runScanner();
+                    if (scanData) {
+                      runAnalysis(scanData);
+                    }
                   } else {
                     setStep(step + 1);
                   }
