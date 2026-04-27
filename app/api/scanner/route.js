@@ -1401,14 +1401,26 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
       }
     }
 
+    // Yahoo's `meta.regularMarketPrice` is null premarket for some tickers
+    // (NVDA observed 2026-04-27 09:47 UTC pre-US-open). Fall back through
+    // previousClose then the last bar's close before giving up — a missing
+    // price kills downstream scanEmission anchor checks and drops the
+    // entry from the shortlist even when Yahoo HAS the data via the chart
+    // endpoint we already fetched.
+    const lastClose = closes.length > 0 ? closes[closes.length - 1] : null
+    const effectivePrice = meta.regularMarketPrice ?? meta.previousClose ?? lastClose ?? null
+    const effectivePrevClose = meta.previousClose
+      || (closes.length > 1 ? closes[closes.length - 2] : null)
+      || null
+
     return {
       ticker,
       name: meta.shortName || ticker,
-      price: meta.regularMarketPrice,
-      previousClose: meta.previousClose || null,
+      price: effectivePrice,
+      previousClose: effectivePrevClose,
       currency: meta.currency,
-      change: meta.previousClose
-        ? ((meta.regularMarketPrice - meta.previousClose) / meta.previousClose * 100).toFixed(2) + '%'
+      change: effectivePrevClose
+        ? ((effectivePrice - effectivePrevClose) / effectivePrevClose * 100).toFixed(2) + '%'
         : indicators.momentum5d?.toFixed(2) + '%',
       direction,
       stage1Direction,
