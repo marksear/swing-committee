@@ -804,59 +804,7 @@ export default function SwingCommitteeApp() {
       case 0:
         return (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-gray-900">Account Settings</h2>
-            <p className="text-gray-600">Configure your risk parameters</p>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Account Size (£)</label>
-                <input
-                  type="number"
-                  value={formData.accountSize}
-                  onChange={(e) => setFormData({ ...formData, accountSize: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Risk Per Trade (%)</label>
-                <select
-                  value={formData.riskPerTrade}
-                  onChange={(e) => setFormData({ ...formData, riskPerTrade: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="0.5">0.5% (Conservative)</option>
-                  <option value="1">1% (Standard)</option>
-                  <option value="2">2% (Aggressive)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Max Positions</label>
-                <select
-                  value={formData.maxPositions}
-                  onChange={(e) => setFormData({ ...formData, maxPositions: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="4">4 positions</option>
-                  <option value="5">5 positions</option>
-                  <option value="6">6 positions</option>
-                  <option value="8">8 positions</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Max Portfolio Heat (%)</label>
-                <select
-                  value={formData.maxHeat}
-                  onChange={(e) => setFormData({ ...formData, maxHeat: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="4">4% (Conservative)</option>
-                  <option value="6">6% (Standard)</option>
-                  <option value="8">8% (Aggressive)</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="border-t border-gray-200 pt-6">
+            <div>
               <h3 className="font-medium text-gray-900 mb-4">Trading Permissions</h3>
 
               <div className="space-y-4">
@@ -900,47 +848,6 @@ export default function SwingCommitteeApp() {
               </div>
             </div>
 
-            {/* Spread Bet Settings */}
-            <div className="border-t border-gray-200 pt-6">
-              <h3 className="font-medium text-gray-900 mb-4">Spread Bet Settings</h3>
-
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg space-y-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <TrendingUp className="w-5 h-5 text-green-600" />
-                  <span className="font-bold text-gray-900">Spread Betting</span>
-                  <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-xs rounded">UK Tax-Free</span>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Broker</label>
-                  <select
-                    value={formData.spreadBetBroker}
-                    onChange={(e) => setFormData({ ...formData, spreadBetBroker: e.target.value })}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                  >
-                    <option value="IG">IG Index</option>
-                    <option value="CMC">CMC Markets</option>
-                    <option value="Spreadex">Spreadex</option>
-                    <option value="CityIndex">City Index</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-                <div className="text-xs text-green-800">
-                  <p><strong>How it works:</strong> Position sized in £ per point. 1 point = 1p (UK) or 1¢ (US).</p>
-                  <p className="mt-1"><strong>Tax:</strong> Profits are tax-free under UK gambling rules. Losses not deductible.</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="border rounded-lg p-4 bg-green-50 border-green-200">
-              <p className="text-sm text-green-800">
-                <strong>Risk calculation:</strong> With £{formData.accountSize} and {formData.riskPerTrade}% risk,
-                your max risk per trade is <strong>£{(parseFloat(formData.accountSize) * parseFloat(formData.riskPerTrade) / 100).toFixed(0)}</strong>
-                <span className="block mt-1">
-                  <strong>Example:</strong> 500pt stop = £{((parseFloat(formData.accountSize) * parseFloat(formData.riskPerTrade) / 100) / 500).toFixed(2)}/point
-                </span>
-              </p>
-            </div>
           </div>
         );
 
