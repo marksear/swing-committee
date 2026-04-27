@@ -154,9 +154,6 @@ export default function SwingCommitteeApp() {
   const [showUKSources, setShowUKSources] = useState(false);
   const [showUSSources, setShowUSSources] = useState(false);
   const [expandedPosition, setExpandedPosition] = useState(null);
-  const [watchlistPrices, setWatchlistPrices] = useState({});
-  const [isFetchingPrices, setIsFetchingPrices] = useState(false);
-  const [priceError, setPriceError] = useState(null);
   const [marketPulseData, setMarketPulseData] = useState(null);
   const [isLoadingMarketPulse, setIsLoadingMarketPulse] = useState(true);
   const [marketPulseError, setMarketPulseError] = useState(null);
@@ -166,10 +163,6 @@ export default function SwingCommitteeApp() {
   const [calendarData, setCalendarData] = useState(null);
   const [isLoadingCalendar, setIsLoadingCalendar] = useState(true);
   const [calendarError, setCalendarError] = useState(null);
-  const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false);
-  const [suggestions, setSuggestions] = useState(null);
-  const [suggestionsError, setSuggestionsError] = useState(null);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scanResults, setScanResults] = useState(null);
   const [scanError, setScanError] = useState(null);
@@ -209,8 +202,6 @@ export default function SwingCommitteeApp() {
     spreadBetBroker: 'IG',
     // Positions
     openPositions: '',
-    // Watchlist
-    watchlist: '',
     // Session
     tradeMode: 'short_term',
     marketSentiment: 5,
@@ -222,7 +213,6 @@ export default function SwingCommitteeApp() {
     { title: 'Welcome', icon: BookOpen },
     { title: 'Account', icon: DollarSign },
     { title: 'Positions', icon: BarChart3 },
-    { title: 'Watchlist', icon: Eye },
     { title: 'Session', icon: Activity },
     { title: 'Analysis', icon: Brain },
   ];
@@ -295,21 +285,6 @@ export default function SwingCommitteeApp() {
     setAnalysisResult(null);
     setAnalysisError(null);
 
-    // Clear watchlist and prices
-    setWatchlistPrices({});
-    setPriceError(null);
-
-    // Clear suggestions
-    setSuggestions(null);
-    setSuggestionsError(null);
-    setShowSuggestions(false);
-
-    // Clear watchlist tickers in form
-    setFormData(prev => ({
-      ...prev,
-      watchlist: ''
-    }));
-
     // Reset UI state
     setShowUKSources(false);
     setShowUSSources(false);
@@ -339,99 +314,12 @@ export default function SwingCommitteeApp() {
     [scanResults, marketContextData]
   );
 
-  // Extract tickers from watchlist text
-  const extractTickers = (text) => {
-    if (!text) return [];
-    const lines = text.split('\n').filter(line => line.trim());
-    return lines.map(line => {
-      // Skip comment lines (starting with #)
-      if (line.trim().startsWith('#')) return null;
-      const parts = line.split(',');
-      return parts[0]?.trim().toUpperCase();
-    }).filter(ticker => ticker && ticker.length >= 1 && !ticker.startsWith('#'));
-  };
-
-  // Fetch live prices from Yahoo Finance
-  const fetchPrices = async () => {
-    const tickers = extractTickers(formData.watchlist);
-    if (tickers.length === 0) {
-      setPriceError('No valid tickers found');
-      return;
-    }
-
-    setIsFetchingPrices(true);
-    setPriceError(null);
-
-    try {
-      const response = await fetch('/api/prices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tickers })
-      });
-
-      if (!response.ok) throw new Error('Failed to fetch prices');
-
-      const data = await response.json();
-      const priceMap = {};
-      data.prices.forEach(p => {
-        // Only include stocks with valid prices (no errors, valid price number)
-        if (!p.error && p.price !== undefined && p.price !== null && !isNaN(p.price)) {
-          priceMap[p.ticker] = p;
-        }
-      });
-      setWatchlistPrices(priceMap);
-    } catch (error) {
-      setPriceError(error.message);
-    } finally {
-      setIsFetchingPrices(false);
-    }
-  };
-
   // Format price for display
   const formatPrice = (price, currency) => {
     if (price === undefined || price === null) return 'N/A';
     if (currency === 'GBp') return `${price.toFixed(0)}p`; // UK pence
     if (currency === 'GBP') return `£${price.toFixed(2)}`;
     return `$${price.toFixed(2)}`;
-  };
-
-  // Generate watchlist suggestions using Claude
-  const generateSuggestions = async () => {
-    setIsGeneratingSuggestions(true);
-    setSuggestionsError(null);
-    setShowSuggestions(true);
-
-    try {
-      const response = await fetch('/api/suggestions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tradeMode: formData.tradeMode })
-      });
-
-      if (!response.ok) throw new Error('Failed to generate suggestions');
-
-      const data = await response.json();
-      setSuggestions(data.suggestions);
-    } catch (error) {
-      setSuggestionsError(error.message);
-    } finally {
-      setIsGeneratingSuggestions(false);
-    }
-  };
-
-  // Add suggested tickers to watchlist
-  const addSuggestionsToWatchlist = (tickers, label) => {
-    const tickerList = tickers.join('\n');
-    const comment = `# ${label}`;
-    const newEntry = `${comment}\n${tickerList}`;
-
-    const currentWatchlist = formData.watchlist.trim();
-    const updatedWatchlist = currentWatchlist
-      ? `${currentWatchlist}\n\n${newEntry}`
-      : newEntry;
-
-    setFormData({ ...formData, watchlist: updatedWatchlist });
-    setWatchlistPrices({}); // Clear prices when watchlist changes
   };
 
   // Run technical scanner on market universe
@@ -496,14 +384,6 @@ export default function SwingCommitteeApp() {
         };
       }
 
-      // Extract user watchlist tickers so scanner can score them too
-      const userWatchlistTickers = formData.watchlist?.trim()
-        ? formData.watchlist.split('\n')
-            .filter(line => line.trim() && !line.trim().startsWith('#'))
-            .map(line => line.split(',')[0].trim().toUpperCase())
-            .filter(Boolean)
-        : [];
-
       const response = await fetch('/api/scanner', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -521,8 +401,6 @@ export default function SwingCommitteeApp() {
             forex: formData.forex,
             crypto: formData.crypto
           },
-          // User watchlist tickers to include in scan (outside universe)
-          watchlistTickers: userWatchlistTickers,
           // Account data for £ per point position sizing
           accountSize: formData.accountSize,
           riskPerTrade: formData.riskPerTrade
@@ -539,21 +417,6 @@ export default function SwingCommitteeApp() {
     } finally {
       setIsScanning(false);
     }
-  };
-
-  // Add scanned stocks to watchlist
-  const addScanResultsToWatchlist = (stocks, label) => {
-    const tickerList = stocks.map(s => s.ticker).join('\n');
-    const comment = `# ${label}`;
-    const newEntry = `${comment}\n${tickerList}`;
-
-    const currentWatchlist = formData.watchlist.trim();
-    const updatedWatchlist = currentWatchlist
-      ? `${currentWatchlist}\n\n${newEntry}`
-      : newEntry;
-
-    setFormData({ ...formData, watchlist: updatedWatchlist });
-    setWatchlistPrices({});
   };
 
   const runAnalysis = async () => {
@@ -580,7 +443,6 @@ export default function SwingCommitteeApp() {
     );
 
     // Add per-ticker review steps — show ALL tickers being analyzed
-    const userWatchlist = formData.watchlist?.trim();
     const scannerWatchlist = scanResults?.results?.watchlist || [];
 
     // Scanner-approved trades
@@ -588,19 +450,11 @@ export default function SwingCommitteeApp() {
     const approvedShorts = scanResults?.results?.short || [];
     const approvedTickers = [...approvedLongs, ...approvedShorts].map(s => s.ticker);
 
-    // User-typed watchlist tickers
-    const userTickers = userWatchlist
-      ? userWatchlist.split('\n')
-          .filter(line => line.trim() && !line.trim().startsWith('#'))
-          .map(line => line.split(',')[0].trim().toUpperCase())
-          .filter(Boolean)
-      : [];
-
     // Scanner developing stocks (always included)
     const developingTickers = scannerWatchlist.slice(0, 5).map(s => s.ticker);
 
     // Combine all, deduplicate
-    const allReviewTickers = [...new Set([...approvedTickers, ...userTickers, ...developingTickers])];
+    const allReviewTickers = [...new Set([...approvedTickers, ...developingTickers])];
 
     if (allReviewTickers.length > 0) {
       baseSteps.push('Generating trade signals...');
@@ -683,7 +537,7 @@ export default function SwingCommitteeApp() {
             uk: { score: marketPulseData.uk.score, label: marketPulseData.uk.label, regime: marketPulseData.uk.regime },
             us: { score: marketPulseData.us.score, label: marketPulseData.us.label, regime: marketPulseData.us.regime }
           },
-          livePrices: watchlistPrices,
+          livePrices: {},
           scannerResults: lightScannerResults
         })
       });
@@ -1690,902 +1544,6 @@ Format: Ticker, Entry_Date, Entry_Price, Shares, Current_Stop"
       case 3:
         return (
           <div className="space-y-6">
-            <h2 className="text-2xl font-bold text-gray-900">Watchlist</h2>
-            <p className="text-gray-600">Scan markets or enter tickers manually</p>
-
-            {/* Scanner Button */}
-            <div className="flex gap-3">
-              <button
-                onClick={runScanner}
-                disabled={isScanning}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-medium rounded-xl hover:from-blue-700 hover:to-cyan-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isScanning ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    Scanning Momentum Setups...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-5 h-5" />
-                    Scan Markets (AI)
-                  </>
-                )}
-              </button>
-            </div>
-            <p className="text-xs text-gray-400 text-center -mt-1 mb-1">Best run pre-market for freshest daily data</p>
-
-            {/* Scanner Results Panel */}
-            {showScanner && (
-              <div className="bg-gradient-to-br from-blue-50 to-cyan-50 border border-blue-200 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold text-blue-900 flex items-center gap-2">
-                    <Crosshair className="w-5 h-5 text-blue-600" />
-                    Technical Scanner Results
-                    {scanResults && (
-                      <span className="text-xs font-normal text-blue-600">
-                        ({scanResults.totalScanned} stocks scanned)
-                      </span>
-                    )}
-                  </h3>
-                  <button
-                    onClick={() => setShowScanner(false)}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <XCircle className="w-5 h-5" />
-                  </button>
-                </div>
-
-                {isScanning ? (
-                  <div className="flex flex-col items-center justify-center py-8">
-                    <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-3" />
-                    <p className="text-blue-700 font-medium">Scanning 100+ stocks...</p>
-                    <p className="text-blue-600 text-sm">Calculating RSI, MAs, momentum, volume...</p>
-                  </div>
-                ) : scanError ? (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
-                    {scanError}
-                    <button onClick={runScanner} className="ml-2 underline">Try again</button>
-                  </div>
-                ) : scanResults ? (
-                  <div className="space-y-4">
-                    {/* Per-Market Regime Gate Status — Independent UK/US */}
-                    {(() => {
-                      const gate = scanResults.regimeGate || { riskOn: true, regimeState: 'GREEN', uk: { riskOn: true }, us: { riskOn: true } };
-                      const ukGate = gate.uk || { riskOn: true, aboveMa50: true, distributionDays: 0 };
-                      const usGate = gate.us || { riskOn: true, aboveMa50: true, distributionDays: 0 };
-                      const ukRegime = gate.ukRegimeState || (ukGate.riskOn ? 'GREEN' : 'RED');
-                      const usRegime = gate.usRegimeState || (usGate.riskOn ? 'GREEN' : 'RED');
-
-                      const regimeDesc = {
-                        GREEN: 'Favour longs \u2022 Shorts need 85%+',
-                        YELLOW: 'Half size \u2022 Be selective',
-                        RED: 'Favour shorts \u2022 Longs need 85%+'
-                      };
-                      const regimeBg = { GREEN: 'bg-green-500', YELLOW: 'bg-amber-500', RED: 'bg-red-500' };
-                      const regimeBannerBg = { GREEN: 'bg-green-50 border-green-200 text-green-800', YELLOW: 'bg-amber-50 border-amber-200 text-amber-800', RED: 'bg-red-50 border-red-200 text-red-800' };
-
-                      return (
-                        <div className="relative mb-2 pb-2">
-                          <div className="grid grid-cols-2 gap-2 mb-2">
-                            {/* UK Market */}
-                            <div>
-                              <div className={`flex items-center justify-between px-3 py-2 rounded-t-lg text-sm font-bold ${regimeBg[ukRegime] || 'bg-amber-500'} text-white`}>
-                                <span>{'\uD83C\uDDEC\uD83C\uDDE7'} UK {ukGate.riskOn ? 'Risk-On' : 'Risk-Off'}</span>
-                                <span className="text-xs font-normal opacity-90">{ukGate.distributionDays || 0}d dist</span>
-                              </div>
-                              <div className={`px-2 py-1 rounded-b-lg border text-xs text-center ${regimeBannerBg[ukRegime] || regimeBannerBg.YELLOW}`}>
-                                {regimeDesc[ukRegime]}
-                              </div>
-                            </div>
-                            {/* US Market */}
-                            <div>
-                              <div className={`flex items-center justify-between px-3 py-2 rounded-t-lg text-sm font-bold ${regimeBg[usRegime] || 'bg-amber-500'} text-white`}>
-                                <span>{'\uD83C\uDDFA\uD83C\uDDF8'} US {usGate.riskOn ? 'Risk-On' : 'Risk-Off'}</span>
-                                <span className="text-xs font-normal opacity-90">{usGate.distributionDays || 0}d dist</span>
-                              </div>
-                              <div className={`px-2 py-1 rounded-b-lg border text-xs text-center ${regimeBannerBg[usRegime] || regimeBannerBg.YELLOW}`}>
-                                {regimeDesc[usRegime]}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Universe + Scan Info */}
-                    <div className="text-xs text-gray-500 mb-1 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-                      <span><span className="font-medium text-gray-600">Universe:</span> S&P 100 + NQ 25 + FTSE 50 ({scanResults.totalScanned || '—'} scanned)</span>
-                      {(() => {
-                        // Show bar freshness from first available result
-                        const allResults = [
-                          ...(scanResults.results?.long || []),
-                          ...(scanResults.results?.short || []),
-                          ...(scanResults.results?.watchlist || [])
-                        ];
-                        const sample = allResults.find(r => r.lastBarDate);
-                        if (!sample) return null;
-                        const isHolidayGap = sample.barFresh && sample.lastBarDate !== sample.expectedBarDate;
-                        return (
-                          <span>
-                            <span className="font-medium text-gray-600">Data:</span>{' '}
-                            {sample.lastBarDate}
-                            {sample.barFresh
-                              ? isHolidayGap
-                                ? <span className="text-green-600 ml-1">OK (holiday gap)</span>
-                                : <span className="text-green-600 ml-1">Fresh</span>
-                              : <span className="text-amber-600 ml-1">Stale (expected {sample.expectedBarDate})</span>
-                            }
-                          </span>
-                        );
-                      })()}
-                    </div>
-                    <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2">
-                      <span>Trend: <span className={scanResults.marketTrend === 'up' ? 'text-green-600 font-medium' : scanResults.marketTrend === 'down' ? 'text-red-600 font-medium' : 'text-gray-600'}>{scanResults.marketTrend || 'neutral'}</span></span>
-                      {(() => {
-                        const ukT = scanResults.thresholds?.uk;
-                        const usT = scanResults.thresholds?.us;
-                        const sameThresholds = ukT && usT &&
-                          ukT.long?.score === usT.long?.score &&
-                          ukT.short?.score === usT.short?.score;
-
-                        if (sameThresholds || !ukT || !usT) {
-                          // Same thresholds — show once
-                          return (
-                            <>
-                              <span>•</span>
-                              <span>Longs ≥{scanResults.thresholds?.long?.score}%</span>
-                              {scanResults.shortSellingAllowed && <><span>•</span><span>Shorts ≥{scanResults.thresholds?.short?.score}%</span></>}
-                            </>
-                          );
-                        }
-                        // Different thresholds — show per-market
-                        return (
-                          <>
-                            <span>•</span>
-                            <span>{'\uD83C\uDDEC\uD83C\uDDE7'} L≥{ukT.long?.score}% S≥{ukT.short?.score}%</span>
-                            <span>•</span>
-                            <span>{'\uD83C\uDDFA\uD83C\uDDF8'} L≥{usT.long?.score}% S≥{usT.short?.score}%</span>
-                          </>
-                        );
-                      })()}
-                    </div>
-
-                    {/* Pipeline Funnel */}
-                    {scanResults.funnel && (() => {
-                      const f = scanResults.funnel;
-                      return (
-                        <div className="bg-gray-50 rounded-lg p-3 text-xs mb-2">
-                          <p className="font-medium text-gray-700 mb-1.5">Pipeline Funnel</p>
-                          <div className="inline-grid grid-cols-[auto_auto_auto_auto_auto_auto_auto] items-center gap-x-1 text-gray-600">
-                            <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-mono text-center">{f.universe}</span>
-                            <span className="text-gray-400 text-center">{'\u2192'}</span>
-                            <span title={`Stage 1: ${f.stage1.label} (${f.stage1.passRate})\n${f.stage1.topReasons?.map(r => `${r.reason}: ${r.count}`).join('\n') || 'no rejections'}`}
-                              className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-mono cursor-help text-center">
-                              {f.stage1.passed} <span className="text-purple-400 font-normal">({f.stage1.passRate})</span>
-                            </span>
-                            <span className="text-gray-400 text-center">{'\u2192'}</span>
-                            <span title={`Stage 2: ${f.stage2.label} (${f.stage2.passRate})`}
-                              className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-mono cursor-help text-center">
-                              {f.stage2.passed} <span className="text-amber-400 font-normal">({f.stage2.passRate})</span>
-                            </span>
-                            <span className="text-gray-400 text-center">{'\u2192'}</span>
-                            <span title={`Stage 3: ${f.stage3.label} (${f.stage3.passRate})\n${f.stage3.topReasons?.map(r => `${r.reason}: ${r.count}`).join('\n') || 'no rejections'}`}
-                              className={`px-1.5 py-0.5 rounded font-mono cursor-help text-center ${f.stage3.passed > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                              {f.stage3.passed} <span className={f.stage3.passed > 0 ? 'text-green-400' : 'text-red-400'}>({f.stage3.passRate})</span>
-                            </span>
-                            {/* Labels row — same grid, aligned under boxes */}
-                            <span className="text-gray-400 text-center mt-0.5">Universe</span>
-                            <span></span>
-                            <span className="text-gray-400 text-center mt-0.5">Direction</span>
-                            <span></span>
-                            <span className="text-gray-400 text-center mt-0.5">S/R</span>
-                            <span></span>
-                            <span className="text-gray-400 text-center mt-0.5">Regime</span>
-                          </div>
-                          {f.stage3.topReasons?.length > 0 && (
-                            <div className="mt-1.5 pt-1.5 border-t border-gray-200">
-                              <span className="text-gray-500">Top rejections: </span>
-                              {f.stage3.topReasons.map((r, i) => (
-                                <span key={i} className="text-gray-500">
-                                  {i > 0 && ', '}
-                                  {r.reason.replace(/_/g, ' ')} ({r.count})
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-
-                    {/* Helper line when Stage 1 produces zero candidates */}
-                    {scanResults.funnel?.stage1?.passed === 0 && (
-                      <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                        Stage 1 is strict in choppy markets — Near Misses show what&apos;s closest.
-                      </p>
-                    )}
-
-                    {/* Long Candidates */}
-                    {scanResults.results.long.length > 0 ? (
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-medium text-green-800 flex items-center gap-2">
-                            <TrendingUp className="w-4 h-4" />
-                            Long Candidates ({scanResults.results.long.length})
-                          </h4>
-                          <button
-                            onClick={() => addScanResultsToWatchlist(scanResults.results.long, 'Scanner Longs')}
-                            className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
-                          >
-                            Add All to Watchlist
-                          </button>
-                        </div>
-                        <div className="grid gap-3 max-h-96 overflow-y-auto">
-                          {scanResults.results.long.map((stock, i) => (
-                            <div key={stock.ticker} className="bg-white border border-green-200 rounded-lg p-3" style={{ contentVisibility: 'auto', containIntrinsicSize: '0 80px' }}>
-                              {/* Header row */}
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                  <span className="w-6 h-6 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-bold">
-                                    {i + 1}
-                                  </span>
-                                  <span className="font-bold text-gray-900">{stock.ticker}</span>
-                                  <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">LONG</span>
-                                  <span className="text-xs text-gray-500">Score: {stock.score?.toFixed(0)}%</span>
-                                  {stock.setupTier && (
-                                    <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${
-                                      stock.setupTier === 'A+' ? 'bg-yellow-100 text-yellow-800' :
-                                      stock.setupTier === 'A' ? 'bg-green-100 text-green-800' :
-                                      stock.setupTier === 'B' ? 'bg-blue-100 text-blue-800' :
-                                      'bg-gray-100 text-gray-600'
-                                    }`}>
-                                      {stock.setupTier}
-                                    </span>
-                                  )}
-                                  {stock.relativeStrength?.classification?.includes('LEADER') && (
-                                    <span className="text-[10px] bg-green-100 text-green-700 px-1 rounded font-medium" title={`RS ${stock.relativeStrength.rsPct?.toFixed(0)}th pctile (+${stock.relativeStrength.longBonus})`}>RS</span>
-                                  )}
-                                </div>
-                                {stock.tradeManagement && (
-                                  <span className="text-sm font-bold text-green-600">R:R {stock.tradeManagement.riskRewardRatio}:1</span>
-                                )}
-                              </div>
-
-                              {/* Trade management details */}
-                              {stock.tradeManagement ? (
-                                <div className="grid grid-cols-4 gap-1.5 text-xs">
-                                  <div className="bg-gray-50 rounded p-1.5">
-                                    <div className="text-gray-500">Entry</div>
-                                    <div className="font-medium">
-                                      {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
-                                      {stock.tradeManagement.entryZone.low?.toFixed(2)}-{stock.tradeManagement.entryZone.high?.toFixed(2)}
-                                    </div>
-                                    {stock.entryTiming?.avoidUntil && (
-                                      <div className="text-amber-600 text-[10px]">after {stock.entryTiming.avoidUntil}</div>
-                                    )}
-                                  </div>
-                                  <div className="bg-red-50 rounded p-1.5">
-                                    <div className="text-gray-500">Stop</div>
-                                    <div className="font-medium text-red-600">
-                                      {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
-                                      {stock.tradeManagement.stopLoss?.toFixed(2)}
-                                    </div>
-                                  </div>
-                                  <div className="bg-green-50 rounded p-1.5">
-                                    <div className="text-gray-500">T1 ({stock.tradeManagement.t1Mult || 1.0}R)</div>
-                                    <div className="font-medium text-green-600">
-                                      {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
-                                      {stock.tradeManagement.target1?.toFixed(2)}
-                                    </div>
-                                  </div>
-                                  <div className="bg-green-50 rounded p-1.5" title={stock.tradeManagement.t2Basis || ''}>
-                                    <div className="text-gray-500">T2 ({stock.tradeManagement.t2Basis?.includes('FRACTAL') ? 'Frac' : 'Fib'})</div>
-                                    <div className="font-medium text-green-600">
-                                      {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
-                                      {stock.tradeManagement.target2?.toFixed(2)}
-                                    </div>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="text-xs text-gray-500">
-                                  Price: {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}{stock.price?.toFixed(2)} | RSI: {stock.indicators?.rsi?.toFixed(0)}
-                                </div>
-                              )}
-
-                              {/* Position sizing + runner info */}
-                              {stock.tradeManagement && (
-                                <div className="flex items-center gap-3 mt-1.5 text-xs bg-purple-50 rounded p-1.5">
-                                  <div>
-                                    <span className="text-gray-500">At T1: </span>
-                                    <span className="font-medium text-purple-700">Take {stock.tradeManagement.t1SizePct || 50}%</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-gray-500">Stop → </span>
-                                    <span className="font-medium text-purple-700">BE</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-gray-500">Runner: </span>
-                                    <span className="font-medium text-purple-700">{stock.tradeManagement.runnerSizePct || 50}% → T2</span>
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Position sizing - £ per point */}
-                              {stock.tradeManagement?.poundsPerPoint && (
-                                <div className="flex items-center gap-3 mt-1 text-xs bg-blue-50 rounded p-1.5">
-                                  <div>
-                                    <span className="text-gray-500">Size: </span>
-                                    <span className="font-bold text-blue-700">£{stock.tradeManagement.poundsPerPoint.toFixed(2)}/pt</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-gray-500">Risk: </span>
-                                    <span className="font-medium text-gray-700">£{stock.tradeManagement.effectiveRisk?.toFixed(0)}</span>
-                                  </div>
-                                  {stock.tradeManagement.regimeMultiplier < 1 && (
-                                    <span className="text-amber-600">({stock.tradeManagement.regimeMultiplier}x regime)</span>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* Reasoning */}
-                              <p className="text-xs text-gray-500 mt-2 truncate">{stock.reasoning}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">
-                        <TrendingUp className="w-4 h-4 inline mr-1 text-green-600" />
-                        No long candidates meet the threshold
-                        {scanResults.thresholds?.uk && scanResults.thresholds?.us &&
-                         scanResults.thresholds.uk.long?.score !== scanResults.thresholds.us.long?.score
-                          ? ` (UK: ${scanResults.thresholds.uk.long?.score}%+, US: ${scanResults.thresholds.us.long?.score}%+)`
-                          : ` (${scanResults.thresholds?.long?.score}%+ score, ${scanResults.thresholds?.long?.pillars}+ pillars)`
-                        }
-                      </div>
-                    )}
-
-                    {/* Short Candidates - only show if short selling is allowed */}
-                    {scanResults.shortSellingAllowed && (
-                      scanResults.results.short.length > 0 ? (
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="font-medium text-red-800 flex items-center gap-2">
-                              <TrendingDown className="w-4 h-4" />
-                              Short Candidates ({scanResults.results.short.length})
-                            </h4>
-                            <button
-                              onClick={() => addScanResultsToWatchlist(scanResults.results.short, 'Scanner Shorts')}
-                              className="text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700"
-                            >
-                              Add All to Watchlist
-                            </button>
-                          </div>
-                          <div className="grid gap-3 max-h-96 overflow-y-auto">
-                            {scanResults.results.short.map((stock, i) => (
-                              <div key={stock.ticker} className="bg-white border border-red-200 rounded-lg p-3" style={{ contentVisibility: 'auto', containIntrinsicSize: '0 80px' }}>
-                                {/* Header row */}
-                                <div className="flex items-center justify-between mb-2">
-                                  <div className="flex items-center gap-2">
-                                    <span className="w-6 h-6 bg-red-100 text-red-700 rounded-full flex items-center justify-center text-xs font-bold">
-                                      {i + 1}
-                                    </span>
-                                    <span className="font-bold text-gray-900">{stock.ticker}</span>
-                                    <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">SHORT</span>
-                                    <span className="text-xs text-gray-500">Score: {stock.score?.toFixed(0)}%</span>
-                                    {stock.setupTier && (
-                                      <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${
-                                        stock.setupTier === 'A+' ? 'bg-yellow-100 text-yellow-800' :
-                                        stock.setupTier === 'A' ? 'bg-green-100 text-green-800' :
-                                        stock.setupTier === 'B' ? 'bg-blue-100 text-blue-800' :
-                                        'bg-gray-100 text-gray-600'
-                                      }`}>
-                                        {stock.setupTier}
-                                      </span>
-                                    )}
-                                    {stock.relativeStrength?.classification?.includes('LAGGARD') && (
-                                      <span className="text-[10px] bg-red-100 text-red-700 px-1 rounded font-medium" title={`RS ${stock.relativeStrength.rsPct?.toFixed(0)}th pctile (+${stock.relativeStrength.shortBonus})`}>RS</span>
-                                    )}
-                                  </div>
-                                  {stock.tradeManagement && (
-                                    <span className="text-sm font-bold text-red-600">R:R {stock.tradeManagement.riskRewardRatio}:1</span>
-                                  )}
-                                </div>
-
-                                {/* Trade management details */}
-                                {stock.tradeManagement ? (
-                                  <div className="grid grid-cols-4 gap-1.5 text-xs">
-                                    <div className="bg-gray-50 rounded p-1.5">
-                                      <div className="text-gray-500">Entry</div>
-                                      <div className="font-medium">
-                                        {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
-                                        {stock.tradeManagement.entryZone.low?.toFixed(2)}-{stock.tradeManagement.entryZone.high?.toFixed(2)}
-                                      </div>
-                                      {stock.entryTiming?.avoidUntil && (
-                                        <div className="text-amber-600 text-[10px]">after {stock.entryTiming.avoidUntil}</div>
-                                      )}
-                                    </div>
-                                    <div className="bg-red-50 rounded p-1.5">
-                                      <div className="text-gray-500">Stop</div>
-                                      <div className="font-medium text-red-600">
-                                        {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
-                                        {stock.tradeManagement.stopLoss?.toFixed(2)}
-                                      </div>
-                                    </div>
-                                    <div className="bg-green-50 rounded p-1.5">
-                                      <div className="text-gray-500">T1 ({stock.tradeManagement.t1Mult || 1.0}R)</div>
-                                      <div className="font-medium text-green-600">
-                                        {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
-                                        {stock.tradeManagement.target1?.toFixed(2)}
-                                      </div>
-                                    </div>
-                                    <div className="bg-green-50 rounded p-1.5" title={stock.tradeManagement.t2Basis || ''}>
-                                      <div className="text-gray-500">T2 ({stock.tradeManagement.t2Basis?.includes('FRACTAL') ? 'Frac' : 'Fib'})</div>
-                                      <div className="font-medium text-green-600">
-                                        {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}
-                                        {stock.tradeManagement.target2?.toFixed(2)}
-                                      </div>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="text-xs text-gray-500">
-                                    Price: {stock.currency === 'GBp' ? 'p' : stock.currency === 'USD' ? '$' : ''}{stock.price?.toFixed(2)} | RSI: {stock.indicators?.rsi?.toFixed(0)}
-                                  </div>
-                                )}
-
-                                {/* Position sizing + runner info */}
-                                {stock.tradeManagement && (
-                                  <div className="flex items-center gap-3 mt-1.5 text-xs bg-purple-50 rounded p-1.5">
-                                    <div>
-                                      <span className="text-gray-500">At T1: </span>
-                                      <span className="font-medium text-purple-700">Take {stock.tradeManagement.t1SizePct || 50}%</span>
-                                    </div>
-                                    <div>
-                                      <span className="text-gray-500">Stop → </span>
-                                      <span className="font-medium text-purple-700">BE</span>
-                                    </div>
-                                    <div>
-                                      <span className="text-gray-500">Runner: </span>
-                                      <span className="font-medium text-purple-700">{stock.tradeManagement.runnerSizePct || 50}% → T2</span>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Position sizing - £ per point */}
-                                {stock.tradeManagement?.poundsPerPoint && (
-                                  <div className="flex items-center gap-3 mt-1 text-xs bg-blue-50 rounded p-1.5">
-                                    <div>
-                                      <span className="text-gray-500">Size: </span>
-                                      <span className="font-bold text-blue-700">£{stock.tradeManagement.poundsPerPoint.toFixed(2)}/pt</span>
-                                    </div>
-                                    <div>
-                                      <span className="text-gray-500">Risk: </span>
-                                      <span className="font-medium text-gray-700">£{stock.tradeManagement.effectiveRisk?.toFixed(0)}</span>
-                                    </div>
-                                    {stock.tradeManagement.regimeMultiplier < 1 && (
-                                      <span className="text-amber-600">({stock.tradeManagement.regimeMultiplier}x regime)</span>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Reasoning */}
-                                <p className="text-xs text-gray-500 mt-2 truncate">{stock.reasoning}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">
-                          <TrendingDown className="w-4 h-4 inline mr-1 text-red-600" />
-                          No short candidates meet the threshold
-                          {scanResults.thresholds?.uk && scanResults.thresholds?.us &&
-                           scanResults.thresholds.uk.short?.score !== scanResults.thresholds.us.short?.score
-                            ? ` (UK: ${scanResults.thresholds.uk.short?.score}%+, US: ${scanResults.thresholds.us.short?.score}%+)`
-                            : ` (${scanResults.thresholds?.short?.score}%+ score, ${scanResults.thresholds?.short?.pillars}+ pillars)`
-                          }
-                        </div>
-                      )
-                    )}
-
-                    {/* Near Misses - stocks that failed by exactly one narrow margin */}
-                    {scanResults.nearMisses && (scanResults.nearMisses.long?.length > 0 || scanResults.nearMisses.short?.length > 0) && (() => {
-                      const longNM = (scanResults.nearMisses.long || []).slice(0, 5);
-                      const shortNM = (scanResults.nearMisses.short || []).slice(0, 5);
-                      return (
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-medium text-orange-800 flex items-center gap-2">
-                            <Target className="w-4 h-4" />
-                            Near Misses ({longNM.length + shortNM.length}):
-                            <span className="text-xs font-normal text-gray-500">
-                              {longNM.length} Long / {shortNM.length} Short
-                            </span>
-                          </h4>
-                          <button
-                            onClick={() => addScanResultsToWatchlist([...longNM, ...shortNM], 'Near Miss')}
-                            className="text-xs bg-orange-600 text-white px-2 py-1 rounded hover:bg-orange-700"
-                          >
-                            Track These
-                          </button>
-                        </div>
-
-                        {/* Long Near Misses */}
-                        {longNM.length > 0 && (
-                          <div className="mb-2">
-                            <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
-                              <ArrowUpRight className="w-3 h-3 text-green-600" />
-                              Long Near Misses
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              {longNM.map((nm) => (
-                                <span
-                                  key={`${nm.ticker}_L`}
-                                  className="bg-white border border-orange-200 rounded px-2 py-1 text-sm flex items-center gap-1"
-                                  title={nm.explain}
-                                >
-                                  <span className="font-medium">{nm.ticker}</span>
-                                  {nm.failureType === 'A' && (
-                                    <>
-                                      <span className="text-orange-600">{nm.actual.scorePct}%</span>
-                                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1 rounded font-medium">SCORE</span>
-                                    </>
-                                  )}
-                                  {nm.failureType === 'B' && (
-                                    <>
-                                      <span className="text-orange-600">{nm.actual.pillarsPassed}/{nm.required.pillarsMin}P</span>
-                                      <span className="text-[10px] bg-purple-100 text-purple-700 px-1 rounded font-medium">PILLAR</span>
-                                    </>
-                                  )}
-                                  {nm.failureType === 'C' && (
-                                    <>
-                                      <span className="text-orange-600">S/R</span>
-                                      <span className="text-[10px] bg-amber-100 text-amber-700 px-1 rounded font-medium">S/R</span>
-                                    </>
-                                  )}
-                                  {nm.failureType === 'D' && (
-                                    <>
-                                      <span className="text-orange-600">{nm.actual.scorePct}%</span>
-                                      <span className="text-[10px] bg-red-100 text-red-700 px-1 rounded font-medium">REGIME</span>
-                                    </>
-                                  )}
-                                  {nm.relativeStrength?.classification?.includes('LEADER') && (
-                                    <span className="text-[10px] bg-green-100 text-green-700 px-1 rounded font-medium" title={`RS ${nm.relativeStrength.rsPct?.toFixed(0)}th pctile`}>RS</span>
-                                  )}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Short Near Misses */}
-                        {shortNM.length > 0 && (
-                          <div>
-                            <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
-                              <ArrowDownRight className="w-3 h-3 text-red-600" />
-                              Short Near Misses
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              {shortNM.map((nm) => (
-                                <span
-                                  key={`${nm.ticker}_S`}
-                                  className="bg-white border border-orange-200 rounded px-2 py-1 text-sm flex items-center gap-1"
-                                  title={nm.explain}
-                                >
-                                  <span className="font-medium">{nm.ticker}</span>
-                                  {nm.failureType === 'A' && (
-                                    <>
-                                      <span className="text-orange-600">{nm.actual.scorePct}%</span>
-                                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1 rounded font-medium">SCORE</span>
-                                    </>
-                                  )}
-                                  {nm.failureType === 'B' && (
-                                    <>
-                                      <span className="text-orange-600">{nm.actual.pillarsPassed}/{nm.required.pillarsMin}P</span>
-                                      <span className="text-[10px] bg-purple-100 text-purple-700 px-1 rounded font-medium">PILLAR</span>
-                                    </>
-                                  )}
-                                  {nm.failureType === 'C' && (
-                                    <>
-                                      <span className="text-orange-600">S/R</span>
-                                      <span className="text-[10px] bg-amber-100 text-amber-700 px-1 rounded font-medium">S/R</span>
-                                    </>
-                                  )}
-                                  {nm.failureType === 'D' && (
-                                    <>
-                                      <span className="text-orange-600">{nm.actual.scorePct}%</span>
-                                      <span className="text-[10px] bg-red-100 text-red-700 px-1 rounded font-medium">REGIME</span>
-                                    </>
-                                  )}
-                                  {nm.relativeStrength?.classification?.includes('LAGGARD') && (
-                                    <span className="text-[10px] bg-red-100 text-red-700 px-1 rounded font-medium" title={`RS ${nm.relativeStrength.rsPct?.toFixed(0)}th pctile`}>RS</span>
-                                  )}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      );
-                    })()}
-
-                    {/* Watchlist Candidates */}
-                    {scanResults.results.watchlist.length > 0 && (
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-medium text-amber-800 flex items-center gap-2">
-                            <Eye className="w-4 h-4" />
-                            Developing ({scanResults.results.watchlist.length})
-                            <span className="text-xs font-normal text-gray-500">— interesting but not ready to trade</span>
-                          </h4>
-                          <button
-                            onClick={() => addScanResultsToWatchlist(scanResults.results.watchlist, 'Scanner Watch')}
-                            className="text-xs bg-amber-600 text-white px-2 py-1 rounded hover:bg-amber-700"
-                          >
-                            Track These
-                          </button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {scanResults.results.watchlist.map((stock) => (
-                            <span
-                              key={stock.ticker}
-                              className={`bg-white border rounded px-2 py-1 text-sm ${
-                                stock.earningsWarning ? 'border-blue-300' :
-                                stock.volatilityWarning ? 'border-red-300' : 'border-amber-200'
-                              }`}
-                              title={`${stock.earningsWarning || stock.volatilityWarning || stock.reasoning || ''}${stock.relativeStrength?.classification !== 'RS_NEUTRAL' && stock.relativeStrength ? ` | RS: ${stock.relativeStrength.classification?.replace('RS_', '')} (${stock.relativeStrength.rsPct?.toFixed(0)}th pctile)` : ''}`}
-                            >
-                              {stock.earningsWarning && <span className="text-blue-500 mr-1">📅</span>}
-                              {stock.volatilityWarning && !stock.earningsWarning && <span className="text-red-500 mr-1">⚠️</span>}
-                              <span className="font-medium">{stock.ticker}</span>
-                              <span className="text-amber-600 ml-1">{stock.score?.toFixed(0)}%</span>
-                              {stock.relativeStrength?.classification?.includes('LEADER') && (
-                                <span className="text-[10px] bg-green-100 text-green-700 px-1 rounded font-medium ml-1">RS</span>
-                              )}
-                              {stock.relativeStrength?.classification?.includes('LAGGARD') && (
-                                <span className="text-[10px] bg-red-100 text-red-700 px-1 rounded font-medium ml-1">RS</span>
-                              )}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <p className="text-xs text-blue-600 italic">
-                      Scanned using Six Pillars methodology: momentum, RSI, MAs, volume, VCP patterns
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            {/* Suggestions Panel */}
-            {showSuggestions && (
-              <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-bold text-purple-900 flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-purple-600" />
-                    AI-Generated Suggestions
-                  </h3>
-                  <button
-                    onClick={() => setShowSuggestions(false)}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <XCircle className="w-5 h-5" />
-                  </button>
-                </div>
-
-                {isGeneratingSuggestions ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="w-8 h-8 animate-spin text-purple-500" />
-                    <span className="ml-3 text-purple-700">Analyzing markets for swing candidates...</span>
-                  </div>
-                ) : suggestionsError ? (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
-                    {suggestionsError}
-                    <button onClick={generateSuggestions} className="ml-2 underline">Try again</button>
-                  </div>
-                ) : suggestions ? (
-                  <div className="space-y-4">
-                    <p className="text-sm text-purple-700">Click a category to add those tickers to your watchlist:</p>
-
-                    {/* Short-Term Suggestions */}
-                    <div className="space-y-2">
-                      <h4 className="font-medium text-gray-900 flex items-center gap-2">
-                        <Zap className="w-4 h-4 text-blue-500" />
-                        Short-Term Swing (2-7 days)
-                      </h4>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                        {suggestions.shortTerm.usLong.length > 0 && (
-                          <button
-                            onClick={() => addSuggestionsToWatchlist(suggestions.shortTerm.usLong, 'US Long (Short-Term)')}
-                            className="p-2 bg-white border border-green-200 rounded-lg text-left hover:bg-green-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-1 text-xs text-green-600 font-medium mb-1">
-                              <TrendingUp className="w-3 h-3" /> US Long
-                            </div>
-                            <p className="text-xs text-gray-600 truncate">{suggestions.shortTerm.usLong.join(', ')}</p>
-                          </button>
-                        )}
-                        {suggestions.shortTerm.usShort.length > 0 && (
-                          <button
-                            onClick={() => addSuggestionsToWatchlist(suggestions.shortTerm.usShort, 'US Short (Short-Term)')}
-                            className="p-2 bg-white border border-red-200 rounded-lg text-left hover:bg-red-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-1 text-xs text-red-600 font-medium mb-1">
-                              <TrendingDown className="w-3 h-3" /> US Short
-                            </div>
-                            <p className="text-xs text-gray-600 truncate">{suggestions.shortTerm.usShort.join(', ')}</p>
-                          </button>
-                        )}
-                        {suggestions.shortTerm.ukLong.length > 0 && (
-                          <button
-                            onClick={() => addSuggestionsToWatchlist(suggestions.shortTerm.ukLong, 'UK Long (Short-Term)')}
-                            className="p-2 bg-white border border-green-200 rounded-lg text-left hover:bg-green-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-1 text-xs text-green-600 font-medium mb-1">
-                              <TrendingUp className="w-3 h-3" /> UK Long
-                            </div>
-                            <p className="text-xs text-gray-600 truncate">{suggestions.shortTerm.ukLong.join(', ')}</p>
-                          </button>
-                        )}
-                        {suggestions.shortTerm.ukShort.length > 0 && (
-                          <button
-                            onClick={() => addSuggestionsToWatchlist(suggestions.shortTerm.ukShort, 'UK Short (Short-Term)')}
-                            className="p-2 bg-white border border-red-200 rounded-lg text-left hover:bg-red-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-1 text-xs text-red-600 font-medium mb-1">
-                              <TrendingDown className="w-3 h-3" /> UK Short
-                            </div>
-                            <p className="text-xs text-gray-600 truncate">{suggestions.shortTerm.ukShort.join(', ')}</p>
-                          </button>
-                        )}
-                        {suggestions.shortTerm.commodLong.length > 0 && (
-                          <button
-                            onClick={() => addSuggestionsToWatchlist(suggestions.shortTerm.commodLong, 'Commodities Long (Short-Term)')}
-                            className="p-2 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-1 text-xs text-amber-600 font-medium mb-1">
-                              <TrendingUp className="w-3 h-3" /> Commod Long
-                            </div>
-                            <p className="text-xs text-gray-600 truncate">{suggestions.shortTerm.commodLong.join(', ')}</p>
-                          </button>
-                        )}
-                        {suggestions.shortTerm.commodShort.length > 0 && (
-                          <button
-                            onClick={() => addSuggestionsToWatchlist(suggestions.shortTerm.commodShort, 'Commodities Short (Short-Term)')}
-                            className="p-2 bg-white border border-amber-200 rounded-lg text-left hover:bg-amber-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-1 text-xs text-amber-600 font-medium mb-1">
-                              <TrendingDown className="w-3 h-3" /> Commod Short
-                            </div>
-                            <p className="text-xs text-gray-600 truncate">{suggestions.shortTerm.commodShort.join(', ')}</p>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-
-                    <p className="text-xs text-purple-600 italic">
-                      Note: Suggestions are based on recent momentum. Always verify with your own analysis.
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Watchlist Tickers</label>
-              <textarea
-                value={formData.watchlist}
-                onChange={(e) => {
-                  setFormData({ ...formData, watchlist: e.target.value });
-                  setWatchlistPrices({}); // Clear prices when watchlist changes
-                }}
-                placeholder="Example:
-NVDA, VCP forming, earnings Feb 26
-MSFT, Cup and handle
-AAPL, Pulling back to 50-day
-LLOY.L, UK bank breakout
-
-Format: Ticker, Notes (we'll fetch live prices)"
-                rows={6}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-              />
-            </div>
-
-            {/* Fetch Prices Button */}
-            <button
-              onClick={fetchPrices}
-              disabled={isFetchingPrices || !formData.watchlist.trim()}
-              className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all ${
-                isFetchingPrices || !formData.watchlist.trim()
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : 'bg-green-600 text-white hover:bg-green-700'
-              }`}
-            >
-              {isFetchingPrices ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Fetching live prices...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="w-5 h-5" />
-                  Fetch Live Prices from Yahoo Finance
-                </>
-              )}
-            </button>
-
-            {priceError && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
-                {priceError}
-              </div>
-            )}
-
-            {/* Live Prices Display */}
-            {Object.keys(watchlistPrices).length > 0 && (
-              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
-                  <h3 className="font-medium text-gray-900 flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-green-600" />
-                    Live Prices
-                    <span className="text-xs text-gray-500 font-normal">via Yahoo Finance</span>
-                  </h3>
-                </div>
-                <div className="divide-y divide-gray-100">
-                  {Object.values(watchlistPrices).map((stock) => {
-                    // Skip invalid stocks - no ticker, no price, or has error
-                    if (!stock || !stock.ticker) return null;
-                    if (stock.error) return null;
-                    if (stock.price === undefined || stock.price === null || isNaN(stock.price)) return null;
-
-                    const change = parseFloat(stock.change) || 0;
-                    return (
-                      <div key={stock.ticker} className="px-4 py-3 flex items-center justify-between">
-                        <div>
-                          <p className="font-bold text-gray-900">{stock.ticker}</p>
-                          <p className="text-xs text-gray-500">{stock.name || ''}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-bold text-gray-900">
-                            {formatPrice(stock.price, stock.currency)}
-                          </p>
-                          <p className={`text-sm ${change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {change >= 0 ? '+' : ''}{stock.change || '0'} ({stock.changePercent || '0%'})
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h3 className="font-medium text-blue-900 mb-2">What We'll Check</h3>
-              <ul className="text-sm text-blue-800 space-y-1">
-                <li>• Livermore pivotal points & timing</li>
-                <li>• O'Neil CANSLIM & relative strength</li>
-                <li>• Minervini trend template & VCP</li>
-                <li>• Darvas box structure</li>
-                <li>• Raschke momentum/mean reversion</li>
-                <li>• Sector relative strength</li>
-              </ul>
-            </div>
-
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <h3 className="font-medium text-green-900 mb-2">Supported Tickers</h3>
-              <p className="text-sm text-green-800">
-                <strong>US stocks:</strong> NVDA, AAPL, MSFT, etc.<br />
-                <strong>UK stocks:</strong> Add .L suffix (e.g., LLOY.L, BARC.L, BP.L)
-              </p>
-            </div>
-          </div>
-        );
-
-      case 4:
-        return (
-          <div className="space-y-6">
             <h2 className="text-2xl font-bold text-gray-900">Session Settings</h2>
             <p className="text-gray-600">Configure this analysis session</p>
 
@@ -2652,7 +1610,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
           </div>
         );
 
-      case 5:
+      case 4:
         if (isAnalyzing) {
           return (
             <div className="text-center py-8 space-y-6">
@@ -3015,9 +1973,9 @@ Format: Ticker, Notes (we'll fetch live prices)"
     <div className="min-h-screen bg-gray-100 p-4">
       <div className={`mx-auto ${analysisComplete ? 'max-w-4xl' : showScanner ? 'max-w-3xl' : 'max-w-2xl'}`}>
         {/* Progress Steps - Show for Account through Session (steps 1-4) */}
-        {step > 0 && step < 5 && (
+        {step > 0 && step < 4 && (
           <div className="flex items-center justify-between mb-8">
-            {steps.slice(1, 5).map((s, i) => (
+            {steps.slice(1, 4).map((s, i) => (
               <React.Fragment key={s.title}>
                 <div className="flex flex-col items-center">
                   <div
@@ -3033,7 +1991,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                   </div>
                   <span className="text-xs mt-1 text-gray-500">{s.title}</span>
                 </div>
-                {i < 3 && (
+                {i < 2 && (
                   <div className={`flex-1 h-1 mx-2 rounded ${i + 1 < step ? 'bg-green-500' : 'bg-gray-200'}`} />
                 )}
               </React.Fragment>
@@ -3060,12 +2018,12 @@ Format: Ticker, Notes (we'll fetch live prices)"
             ) : (
               <div />
             )}
-            {step < 5 && (
+            {step < 4 && (
               <button
                 onClick={() => {
-                  if (step === 4) {
+                  if (step === 3) {
                     // Skip the "Ready to Scan" screen - go directly to step 5 and start analysis
-                    setStep(5);
+                    setStep(4);
                     runAnalysis();
                   } else {
                     setStep(step + 1);
@@ -3073,7 +2031,7 @@ Format: Ticker, Notes (we'll fetch live prices)"
                 }}
                 className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-xl hover:bg-gray-800"
               >
-                {step === 0 ? 'Get Started' : step === 4 ? 'Run Analysis' : 'Continue'}
+                {step === 0 ? 'Get Started' : step === 3 ? "Run Analysis" : "Continue"}
                 <ChevronRight className="w-5 h-5" />
               </button>
             )}
