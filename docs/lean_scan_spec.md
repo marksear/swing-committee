@@ -181,23 +181,31 @@ export function deriveTriggerStopTarget(scannerRow, direction) {
 }
 ```
 
-**Starting formula** (matches the backtest harness draft; finalise when that lands):
+**Starting formula** — Raschke / Masterclass canonical "natural volatility unit" zone width (updated 2026-04-28; previously fixed 3% buffer):
 
 ```
 LONG:
   trigger_low  = lastClose
-  trigger_high = lastClose × 1.03
+  trigger_high = lastClose + ATR14 × 0.5
   stop         = trigger_low − ATR14 × 1.5
   R            = trigger_low − stop
   target       = trigger_low + R × 3
 
 SHORT: symmetric
   trigger_high = lastClose
-  trigger_low  = lastClose × 0.97
+  trigger_low  = lastClose − ATR14 × 0.5
   stop         = trigger_high + ATR14 × 1.5
   R            = stop − trigger_high
   target       = trigger_high − R × 3
 ```
+
+**Why ATR-based zone instead of fixed 3%** (Mark 2026-04-28):
+
+- The fixed 3% buffer ignored each stock's natural volatility — KO ($80, ATR ≈ $1) got the same 3% buffer as NVDA ($209, ATR ≈ $7.42), but a 3% NVDA move is over a full ATR of slack. That made breakouts effectively unreachable inside the intraday-managed window — NVDA needed a +5.77 move (≈ 2.7%) to fire, requiring most of a session to play out.
+- 0.5 × ATR is the Raschke / Minervini canonical "half a natural volatility unit" — adapts proportionally to each stock and matches what experienced operators consider "above the pivot, but not chasing".
+- Cuts "distance to fire" by ~2-3× for typical equities. NVDA in the same example moves from +5.77 needed to +1.71 needed — achievable in a 30-minute window, not a full session.
+- Improves R:R at fill from ~1.3:1 to ~2.2:1 for typical setups (Task #63 still open — desk reference target is 3:1 minimum, this gets us closer but doesn't fully resolve).
+- Cross-repo coupling: the JS `lib/triggerDerivation.js` and the Python backtest in `money-program-trading/src/backtest/replay_scanner.py` are now a coupled pair. A change in one MUST land with a matching change in the other; drift breaks live/backtest parity.
 
 Round all outputs to the instrument's tick size (use `scannerRow.tickSize` if available; fall back to 2 d.p. for equities). Whole-tick rounding avoids flickery sub-tick numbers in the UI.
 
