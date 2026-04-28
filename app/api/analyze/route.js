@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { LOG_SCHEMA_VERSION, buildScanPayload } from '../../../lib/scanEmission.js'
+import { deriveTriggerStopTarget } from '../../../lib/triggerDerivation.js'
 import { validateScanPayload, hasBlockingFindings } from '../../../lib/intake/validate_scan'
 
 // Allow up to 120s on Vercel Pro (default is 10s on Hobby)
@@ -632,6 +633,10 @@ export function convertJsonToSignals(jsonData, scannerResults = null) {
   // Build authoritative ticker → company name lookup from scanner (Yahoo Finance data).
   // This overrides any hallucinated company names the AI may have produced.
   const tickerToName = new Map()
+  // Build ticker → scanner row lookup for §4.6 deterministic price
+  // derivation. We need atrRaw + price per ticker; the canonical pool
+  // for these is scannerResults.results (long + short + watchlist).
+  const tickerToScannerRow = new Map()
   if (scannerResults?.results) {
     const pools = [
       scannerResults.results.long || [],
@@ -640,14 +645,21 @@ export function convertJsonToSignals(jsonData, scannerResults = null) {
     ]
     for (const pool of pools) {
       for (const s of pool) {
-        if (!s?.ticker || !s?.name || s.name === s.ticker) continue
-        // Store under both full ticker (SMT.L) and stripped (SMT) for safe lookup
+        if (!s?.ticker) continue
+        // Store row under both full ticker (SMT.L) and stripped (SMT)
+        // since downstream tickers may arrive in either form.
+        const stripped = s.ticker.replace('.L', '')
+        tickerToScannerRow.set(s.ticker, s)
+        tickerToScannerRow.set(stripped, s)
+        if (!s.name || s.name === s.ticker) continue
         tickerToName.set(s.ticker, s.name)
-        tickerToName.set(s.ticker.replace('.L', ''), s.name)
+        tickerToName.set(stripped, s.name)
       }
     }
   }
   const canonicalName = (ticker) => tickerToName.get(ticker) || tickerToName.get(ticker?.replace('.L', '')) || null
+  const findScannerRow = (ticker) =>
+    tickerToScannerRow.get(ticker) || tickerToScannerRow.get(ticker?.replace('.L', '')) || null
 
   // Convert trades to signals
   if (jsonData.trades && Array.isArray(jsonData.trades)) {
@@ -660,22 +672,44 @@ export function convertJsonToSignals(jsonData, scannerResults = null) {
       // Build comprehensive rawSection from tradeAnalysis
       let rawSection = buildTradeAnalysisText(trade)
 
-      const tLow = typeof trade.trigger_low === 'number' ? trade.trigger_low : null
-      const tHigh = typeof trade.trigger_high === 'number' ? trade.trigger_high : null
-      const entry = (tLow != null && tHigh != null) ? { low: tLow, high: tHigh } : trade.entry
+      // ── Lean Scan §4.6 — server-side deterministic trigger/stop/target ──
+      // The LLM's numeric output (trigger_low/trigger_high/stop/target) is
+      // unreliable: 2026-04-18 produced run-to-run drift on identical
+      // OHLCV; 2026-04-28 emitted all-zero prices for A/B-grade UK rows.
+      // Derive deterministically from the scanner row instead. If
+      // derivation fails (missing scanner row or missing OHLCV), DROP the
+      // trade — emitting a 0.00-priced shortlist entry is worse than a
+      // missing one because the operator can't act on it anyway.
+      const direction = trade.direction?.toUpperCase() || 'LONG'
+      const scannerRow = findScannerRow(trade.ticker)
+      let derived = null
+      if (scannerRow) {
+        derived = deriveTriggerStopTarget(scannerRow, direction)
+      }
+      if (!derived) {
+        console.warn(
+          `[convertJsonToSignals] dropping ${trade.ticker} ${direction} — ` +
+          `${!scannerRow ? 'no scanner row' : 'derivation failed (missing price/atr)'}.` +
+          ` This is the §4.6 fix in action; the LLM emitted this trade but ` +
+          `we can't pin down deterministic prices for it.`
+        )
+        continue
+      }
+
+      const entry = { low: derived.trigger_low, high: derived.trigger_high }
       signals.push({
         ticker: trade.ticker?.replace('.L', ''),
         name: canonical || trade.ticker,
-        direction: trade.direction?.toUpperCase() || 'LONG',
+        direction,
         verdict: normaliseVerdict(trade.verdict) || 'TAKE TRADE',
         entry,
-        trigger_low: tLow,
-        trigger_high: tHigh,
-        stop: trade.stop,
-        target: trade.target,
+        trigger_low: derived.trigger_low,
+        trigger_high: derived.trigger_high,
+        stop: derived.stop,
+        target: derived.target,
         grade: trade.grade,
         pillarCount: trade.pillarCount,
-        setupType: trade.setupType || `${trade.direction?.toUpperCase() || 'BUY'} ${trade.direction?.toUpperCase() || 'LONG'}`,
+        setupType: trade.setupType || `${direction} ${direction}`,
         riskReward: trade.tradeAnalysis?.riskReward1 || null,
         rationale_one_liner: trade.rationale_one_liner || trade.tradeAnalysis?.rationale_one_liner || null,
         rawSection,
