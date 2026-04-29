@@ -215,9 +215,33 @@ export async function POST(request) {
       }
     })
 
-    const validResults = allResults
-      .filter(r => r.score !== null)
+    // Drop rows with no usable price. Two failure shapes leak past the
+    // earlier `r.error` filter at line 165:
+    //   1. Yahoo returned 200 but `meta.regularMarketPrice`,
+    //      `meta.previousClose` AND last close are all null (NVDA bug
+    //      2026-04-27 — line 1411 falls through to `?? null`). The row
+    //      had price=null but a non-null score, so it shipped into
+    //      `results.long`. The LLM then emitted trigger/stop/target of
+    //      0.00 because §4.6 derivation got nothing to anchor on.
+    //   2. Yahoo returned price as 0 (rare — typically pre-IPO or
+    //      delisted, but defensively rejected here).
+    // Score-null was already filtered. Add price-finite + positive as
+    // the canonical "is this row tradeable" gate. Task #51.
+    const scoredResults = allResults.filter(r => r.score !== null)
+    const validResults = scoredResults
+      .filter(r => Number.isFinite(r.price) && r.price > 0)
       .sort((a, b) => b.score - a.score)
+    const priceInvalidDropped = scoredResults.length - validResults.length
+    if (priceInvalidDropped > 0) {
+      const dropped = scoredResults.filter(
+        r => !(Number.isFinite(r.price) && r.price > 0)
+      ).map(r => r.ticker)
+      console.warn(
+        `[scanner] dropped ${priceInvalidDropped} rows with invalid price: ` +
+        `${dropped.join(', ')}. These had a non-null score but no usable ` +
+        `latest close (NVDA-style fallback chain failure).`
+      )
+    }
 
     // Stage 2: S/R filtering (also happened inside scanTicker — demotions to WATCH)
     // We approximate by counting how many with direction got demoted to WATCH due to S/R

@@ -697,8 +697,12 @@ export function convertJsonToSignals(jsonData, scannerResults = null) {
       }
 
       const entry = { low: derived.trigger_low, high: derived.trigger_high }
+      // Compute market BEFORE stripping .L — scanEmission's inferMarket()
+      // can't tell from the bare ticker that MNG/SBRY/RKT are UK. Task #66.
+      const tradeIsUK = (trade.ticker || '').toUpperCase().endsWith('.L');
       signals.push({
         ticker: trade.ticker?.replace('.L', ''),
+        market: tradeIsUK ? 'UK' : 'US',
         name: canonical || trade.ticker,
         direction,
         verdict: normaliseVerdict(trade.verdict) || 'TAKE TRADE',
@@ -759,8 +763,11 @@ export function convertJsonToSignals(jsonData, scannerResults = null) {
       const wEntry = (wLow != null && wHigh != null)
         ? { low: wLow, high: wHigh }
         : (item.potentialEntry || null)
+      // Compute market BEFORE stripping .L (Task #66 — UK detection).
+      const watchIsUK = (item.ticker || '').toUpperCase().endsWith('.L');
       signals.push({
         ticker: item.ticker?.replace('.L', ''),
+        market: watchIsUK ? 'UK' : 'US',
         name: canonical || item.ticker,
         direction: inferDirection(),
         verdict: 'WATCHLIST',
@@ -791,8 +798,11 @@ export function convertJsonToSignals(jsonData, scannerResults = null) {
       const dLow = typeof dt.trigger_low === 'number' ? dt.trigger_low : null
       const dHigh = typeof dt.trigger_high === 'number' ? dt.trigger_high : null
       const dEntry = (dLow != null && dHigh != null) ? { low: dLow, high: dHigh } : dt.entry
+      // Compute market BEFORE stripping .L (Task #66 — UK detection).
+      const dtIsUK = (dt.ticker || '').toUpperCase().endsWith('.L');
       signals.push({
         ticker: dt.ticker?.replace('.L', ''),
+        market: dtIsUK ? 'UK' : 'US',
         name: canonical || dt.ticker,
         direction: dt.direction?.toUpperCase() || 'LONG',
         verdict: normaliseVerdict(dt.verdict) || 'DAY TRADE',
@@ -983,7 +993,19 @@ function buildTradeAnalysisText(trade) {
 
   // Grade and verdict
   text += `**GRADE:** ${trade.grade || 'N/A'}\n\n`
-  text += `**VERDICT:** TAKE TRADE\n`
+  // Honour the LLM's actual verdict instead of hardcoding "TAKE TRADE".
+  // 2026-04-28 MS bug: LLM put MS in the `trades` array with
+  // trade.verdict='WATCHLIST', signal.verdict became WATCHLIST, but the
+  // hardcoded stance text said TAKE TRADE — fired the validator's
+  // verdict.text_vs_extras_mismatch finding and confused the operator
+  // who saw a TAKE-TRADE looking row that turned out to be WATCHLIST.
+  // Default to TAKE TRADE only when the LLM omitted the field (the
+  // trades array implies that's the intent).
+  const actualVerdict = (trade.verdict || 'TAKE TRADE')
+    .toUpperCase()
+    .replace(/-/g, ' ')
+    .trim()
+  text += `**VERDICT:** ${actualVerdict}\n`
 
   return text
 }
