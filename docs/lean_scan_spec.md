@@ -181,19 +181,20 @@ export function deriveTriggerStopTarget(scannerRow, direction) {
 }
 ```
 
-**Starting formula** — Raschke / Masterclass canonical "natural volatility unit" zone width (updated 2026-04-28; previously fixed 3% buffer):
+**Starting formula** — LBR-aligned 0.35×ATR zone width for intraday-managed
+profile (updated 2026-04-29; was 0.5×ATR 2026-04-28; was fixed 3% before):
 
 ```
 LONG:
   trigger_low  = lastClose
-  trigger_high = lastClose + ATR14 × 0.5
+  trigger_high = lastClose + ATR14 × 0.35
   stop         = trigger_low − ATR14 × 1.5
   R            = trigger_low − stop
   target       = trigger_low + R × 3
 
 SHORT: symmetric
   trigger_high = lastClose
-  trigger_low  = lastClose − ATR14 × 0.5
+  trigger_low  = lastClose − ATR14 × 0.35
   stop         = trigger_high + ATR14 × 1.5
   R            = stop − trigger_high
   target       = trigger_high − R × 3
