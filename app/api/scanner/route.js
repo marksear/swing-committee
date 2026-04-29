@@ -1437,6 +1437,47 @@ async function scanTicker(ticker, mode, accountSize = null, riskPercent = null, 
       || (closes.length > 1 ? closes[closes.length - 2] : null)
       || null
 
+    // Symbol-mismatch sanity check (Task #64, 2026-04-29).
+    // Yahoo's chart endpoint can return data for a different instrument
+    // than the requested symbol — observed 2026-04-28 when MS shipped
+    // with price=189.595 against a real Morgan Stanley quote of $122.50.
+    // If meta.symbol differs from the requested ticker (case-insensitive,
+    // ignoring market suffixes), log a warning so the operator sees it.
+    // Don't reject the row — Yahoo sometimes uses canonical aliases for
+    // legitimate tickers (e.g. BRK-B → BRK.B), and we'd lose those.
+    if (meta.symbol) {
+      const requested = String(ticker).toUpperCase().replace(/[.\-_]/g, '')
+      const returned = String(meta.symbol).toUpperCase().replace(/[.\-_]/g, '')
+      if (requested !== returned) {
+        console.warn(
+          `[scanner] symbol mismatch for ${ticker}: requested=${ticker}, ` +
+          `Yahoo returned meta.symbol=${meta.symbol}, ` +
+          `name="${meta.shortName || meta.longName || '?'}", ` +
+          `price=${effectivePrice}, prevClose=${effectivePrevClose}. ` +
+          `Verify the symbol resolved to the intended company.`
+        )
+      }
+    }
+    // Price-divergence sanity check: if meta.regularMarketPrice and
+    // the last chart bar's close disagree by more than 10%, that's a
+    // strong signal Yahoo's quote and chart series are out of sync.
+    // Log so the operator can audit. Doesn't drop — Mark prefers the
+    // raw signal over a silent reject for diagnosable cases.
+    if (
+      Number.isFinite(meta.regularMarketPrice) &&
+      Number.isFinite(lastClose) &&
+      lastClose > 0 &&
+      Math.abs(meta.regularMarketPrice - lastClose) / lastClose > 0.10
+    ) {
+      const driftPct = ((meta.regularMarketPrice - lastClose) / lastClose * 100).toFixed(1)
+      console.warn(
+        `[scanner] price divergence for ${ticker}: ` +
+        `meta.regularMarketPrice=${meta.regularMarketPrice}, ` +
+        `chart lastClose=${lastClose}, drift=${driftPct}%. ` +
+        `Yahoo's quote and chart endpoints may be out of sync.`
+      )
+    }
+
     return {
       ticker,
       name: meta.shortName || ticker,
