@@ -171,13 +171,19 @@ export default function SwingCommitteeApp() {
   // Gate-bypass (mechanics-test) state.
   //
   // While we exercise the IG execution mechanics end-to-end on DEMO, the user
-  // can opt into a bypass path: pick up to 3 tickers from the Trade Signals
+  // can opt into a bypass path: pick up to 5 tickers from the Trade Signals
   // tab and ship them to entry-rules with entry gates suspended, sizing +
-  // exits still enforced. Floor rules: max 3, grade-D disabled. The ingest
+  // exits still enforced. Floor rules: max 5, grade-D disabled. The ingest
   // layer in entry-rules refuses bypass on LIVE and refuses expired
   // bypass_until dates — belt-and-braces. Default window is 20 days, which
   // leaves a ~40-day buffer before any live-money plan.
-  const BYPASS_MAX_SELECTIONS = 3;
+  //
+  // Cap bumped 3 → 5 on 2026-04-29 for DEMO mechanics-testing only.
+  // Live trading remains N=3 per feedback_small_account_sizing — that's a
+  // budget-discipline cap (top-3 × 1% = 3% open risk, well inside R5's 6%).
+  // The DEMO cap is purely diagnostic: more sample tickers per session
+  // means more rule-stack evidence to verify number-correctness against.
+  const BYPASS_MAX_SELECTIONS = 5;
   const BYPASS_DEFAULT_DAYS = 20;
   const [bypassEnabled, setBypassEnabled] = useState(false);
   const [bypassUntilDays, setBypassUntilDays] = useState(BYPASS_DEFAULT_DAYS);
